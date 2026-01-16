@@ -1,11 +1,17 @@
+
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ImageBackground, TouchableOpacity, ScrollView, Image, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ImageBackground, TouchableOpacity, ScrollView, Image, Dimensions, ActivityIndicator, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getTVDetails, getTVCredits, getTVSeasonDetails, getBackdropUrl, getProfileUrl, getStillUrl } from '../services/tmdb';
 import { TMDBTVDetails, TMDBCredits, TMDBSeasonDetails, TMDBEpisode, TMDBCastMember } from '../types/tmdb';
+import { useTVShowStreams } from '../hooks/useTVShowStreams';
+import { processExternalStreams } from '../utils/streamUtils';
+import ShowfimPlayer from '../components/player/ShowfimPlayer';
+import DownloadModal from '../components/DownloadModal';
+import StreamLoadingModal from '../components/StreamLoadingModal';
 
 const { width } = Dimensions.get('window');
 
@@ -25,6 +31,21 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   const [seasonLoading, setSeasonLoading] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [activeTab, setActiveTab] = useState<'seasons' | 'extras'>('seasons');
+  
+  // Streaming state
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [isWaitingForStream, setIsWaitingForStream] = useState(false);
+  const [playingEpisode, setPlayingEpisode] = useState<{ season: number; episode: number } | null>(null);
+  
+  // Streaming data (only fetch when episode is selected for playback)
+  const { streams, loading: streamsLoading, hasFetched } = useTVShowStreams(
+    tvId || 0, 
+    playingEpisode?.season || 1, 
+    playingEpisode?.episode || 1
+  );
+  const processedSources = streams ? processExternalStreams(streams.externalStreams) : [];
+  const subtitles = streams?.captions || [];
 
   // Fetch TV show data
   useEffect(() => {
@@ -107,12 +128,51 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   // Get seasons for tabs (exclude season 0 which is specials)
   const seasons = tvShow.seasons?.filter(s => s.season_number > 0) || [];
 
+  // Watch stream effect
+  useEffect(() => {
+    if (isWaitingForStream && !streamsLoading && playingEpisode) {
+      if (streams?.externalStreams && streams.externalStreams.length > 0) {
+        setIsWaitingForStream(false);
+        setShowPlayer(true);
+      } else if (hasFetched) {
+        setIsWaitingForStream(false);
+        setPlayingEpisode(null); // Reset selection
+        Alert.alert('No Sources', 'Sorry, no stream sources found for this episode yet.');
+      }
+    }
+  }, [isWaitingForStream, streamsLoading, hasFetched, streams, playingEpisode]);
+
+  // Handle episode play
+  const handlePlayEpisode = (episode: TMDBEpisode) => {
+    // If playing same episode and data ready
+    if (playingEpisode?.season === selectedSeason && playingEpisode?.episode === episode.episode_number && streams?.externalStreams?.length > 0) {
+      setShowPlayer(true);
+      return;
+    }
+
+    setPlayingEpisode({ season: selectedSeason, episode: episode.episode_number });
+    // If already has streams or just switching, might need to wait? 
+    // Actually the hook updates when playingEpisode changes.
+    // So we should always wait for the hook to respond
+    setIsWaitingForStream(true);
+  };
+
+  // Handle episode download
+  const handleDownloadEpisode = (episode: TMDBEpisode) => {
+    setPlayingEpisode({ season: selectedSeason, episode: episode.episode_number });
+    setShowDownloadModal(true);
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
+
+      {/* Loading Modal */}
+      <StreamLoadingModal visible={isWaitingForStream} message="Finding episode streams..." />
       
       {/* Fixed Header */}
-      <View style={styles.header}>
+      {!showPlayer && (
+        <View style={styles.header}>
         <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
           <TouchableOpacity style={styles.iconButton} onPress={onBack}>
             <MaterialIcons name="arrow-back-ios-new" size={20} color="white" />
@@ -134,6 +194,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
           </View>
         </SafeAreaView>
       </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
@@ -273,8 +334,19 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
                           <Text style={styles.episodeTitle} numberOfLines={2}>
                             {episode.episode_number}. {episode.name}
                           </Text>
-                          <TouchableOpacity style={styles.downloadButton}>
-                            <MaterialIcons name="download-for-offline" size={22} color="#9ca3af" />
+                        </View>
+                        <View style={styles.episodeActions}>
+                          <TouchableOpacity 
+                            style={styles.episodePlayButton}
+                            onPress={() => handlePlayEpisode(episode)}
+                          >
+                            <MaterialIcons name="play-arrow" size={24} color="white" />
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={styles.episodeDownloadButton}
+                            onPress={() => handleDownloadEpisode(episode)}
+                          >
+                            <MaterialIcons name="download" size={20} color="#9ca3af" />
                           </TouchableOpacity>
                         </View>
                         <Text style={styles.episodeDescription} numberOfLines={3}>
@@ -379,6 +451,32 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
         </View>
 
       </ScrollView>
+      {/* Download Modal */}
+      <DownloadModal
+        visible={showDownloadModal}
+        onClose={() => setShowDownloadModal(false)}
+        sources={processedSources}
+        subtitles={subtitles}
+        title={tvShow?.name || 'Episode'}
+        posterUrl={tvShow?.poster_path ? getPosterUrl(tvShow.poster_path) : ''}
+        loading={streamsLoading}
+      />
+
+      {/* Video Player Modal */}
+      {showPlayer && (
+        <View style={StyleSheet.absoluteFillObject}>
+          <ShowfimPlayer
+            sources={processedSources}
+            subtitles={subtitles}
+            title={`${tvShow?.name} - S${playingEpisode?.season} E${playingEpisode?.episode}`}
+            contentId={`tv-${tvId}-${playingEpisode?.season}-${playingEpisode?.episode}`}
+            poster={tvShow?.backdrop_path ? getBackdropUrl(tvShow.backdrop_path) : undefined}
+            autoPlay={true}
+            onClose={() => setShowPlayer(false)}
+          />
+        </View>
+      )}
+
     </View>
   );
 }
@@ -757,12 +855,34 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+  episodeActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  episodePlayButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#9727e7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  episodeDownloadButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
   genreTag: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: 'rgba(151, 39, 231, 0.15)',
     borderRadius: 20,
-    borderWidth: 1,
     borderColor: 'rgba(151, 39, 231, 0.3)',
   },
   genreTagText: {

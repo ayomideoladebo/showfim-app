@@ -1,40 +1,29 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Dimensions, Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useDownloads } from '../hooks/useDownloads';
 
 const { width } = Dimensions.get('window');
 
-// Mock Data
-const DOWNLOADED_ITEMS = [
-  { 
-    id: '1', 
-    title: 'Oppenheimer', 
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuA1OaN1AAADuoJ9lBv_MRXYprBDQetUFmyJoQIwna340GyOw6gAJQu4gv4HxvCvIDpITo8hmsCnXYaioKI5ZFE51dWbAEFxVMv0xZvdFCcpZubi7F57-dx_Gmg0beAcjOzpMfHZCHFT-S1DrRsXv9NsjYootgLcLlyW-uVeNqr4vlTQx7mqLhR2xuczPxIqsVfzz2Rp19Q9DsJ_Dlf7eEsnw4N_6KPfn6szkT_m-i4tEipcCmxAGGpCAAzny5k8umLgwRHnMguqQQhi',
-    duration: '3h 0min',
-    size: '4.2 GB',
-    progress: 100
-  },
-  { 
-    id: '2', 
-    title: 'Spider-Man: Across the Spider-Verse', 
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBzfA2qZivHhnKpON-XgiyTEH1aEqTI06MYx7cUd0Z3deuz0Jp4TW4MT0_3DAogQdJS01cWkf64l2kHh8AtwVYHsZeM9ybryVD3-g0B27FNtmnQo28tURZwpWtD5uiJGLjF2NzUhXMdbHKDLJ85sjt-_5UV3wlKKKMrSdkbM2kvUEjkarVPUcwV8JUcgYuQgcFf94nMg4gfgs7kPC-UMmXDFfME4z1QvlcgvfsJG5ddPoIhstku0Ayo59bDaqNlD03Hw-qkCN_6caOy',
-    duration: '2h 20min',
-    size: '3.1 GB',
-    progress: 100
-  },
-  { 
-    id: '3', 
-    title: 'The Batman', 
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDbUlWINzFTvCg3f2BwYb88h35QV6RzeS3fZB-rV1O_n2xT0AnLAxmPY9qhbrlA0YYYfdkphMhN-9iHznaVlsx1Ch0LRgAglCdylQMVZDd3-Mrs_zup4pZFdy2cQoIetWLoQ9rFly_Pjgb0hklVokBMyzlaXuL6JJH6bZJzYOiTTUporsz4BgZ1-Kt-BrJ4MYajbloDVyoGYpBR_xGHKDH_6OoK5-w87N-6pn-7Rmga1dagzEM-gSI4m--yvw6NvNfyUHONnjGBcBIU',
-    duration: '2h 56min',
-    size: '5.5 GB',
-    progress: 100
-  }
-];
-
 export default function DownloadsScreen() {
+  const { 
+    downloads, 
+    deleteDownload, 
+    pauseDownload, 
+    resumeDownload, 
+    clearAllDownloads 
+  } = useDownloads();
+
+  const activeDownloads = downloads.filter(d => d.status === 'downloading' || d.status === 'paused');
+  const completedDownloads = downloads.filter(d => d.status === 'completed');
+
+  // Calculate storage (Mock for now as FileSystem info is async and global)
+  // Ideally, use another hook or effect to get device storage info
+  const usedStorageGB = 32; 
+  const totalStorageGB = 128;
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -43,33 +32,30 @@ export default function DownloadsScreen() {
       <View style={styles.header}>
         <SafeAreaView edges={['top']} style={styles.headerContent}>
           <Text style={styles.headerTitle}>My Downloads</Text>
-          <TouchableOpacity style={styles.settingsBtn}>
-            <MaterialIcons name="settings" size={24} color="#9ca3af" />
+          <TouchableOpacity style={styles.settingsBtn} onPress={clearAllDownloads} onLongPress={() => Alert.alert('Clear All', 'Delete all downloads?', [{text: 'Cancel'}, {text: 'Delete', onPress: clearAllDownloads}])}>
+            <MaterialIcons name="delete-sweep" size={24} color="#9ca3af" />
           </TouchableOpacity>
         </SafeAreaView>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
-        {/* Storage Indicator Card */}
+        {/* Storage Indicator Card (Visual Only for now) */}
         <View style={styles.storageCard}>
            <View style={styles.storageHeader}>
               <View>
                  <Text style={styles.storageLabel}>DEVICE STORAGE</Text>
                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4 }}>
-                    <Text style={styles.storageUsed}>32</Text>
+                    <Text style={styles.storageUsed}>{usedStorageGB}</Text>
                     <Text style={styles.storageUnit}>GB used</Text>
                  </View>
               </View>
-              <Text style={styles.storageTotal}>of 128GB</Text>
+              <Text style={styles.storageTotal}>of {totalStorageGB}GB</Text>
            </View>
-
-           {/* Progress Bar */}
            <View style={styles.storageBarBg}>
               <View style={[styles.storageBarFill, { width: '25%', backgroundColor: '#9727e7' }]} />
               <View style={[styles.storageBarFill, { width: '15%', backgroundColor: 'rgba(129, 140, 248, 0.5)' }]} />
            </View>
-
            <View style={styles.legendRow}>
               <View style={styles.legendItem}>
                  <View style={[styles.legendDot, { backgroundColor: '#9727e7' }]} />
@@ -83,100 +69,124 @@ export default function DownloadsScreen() {
         </View>
 
         {/* Active Downloads Section */}
-        <View style={styles.sectionHeader}>
-           <Text style={styles.sectionTitle}>Active Downloads</Text>
-           <View style={styles.badge}><Text style={styles.badgeText}>1 item</Text></View>
-        </View>
+        {activeDownloads.length > 0 && (
+            <>
+                <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Active Downloads</Text>
+                <View style={styles.badge}><Text style={styles.badgeText}>{activeDownloads.length} item{activeDownloads.length !== 1 ? 's' : ''}</Text></View>
+                </View>
 
-        <View style={styles.activeDownloadCard}>
-           {/* Glow Effect */}
-           <View style={styles.activeGlow} />
+                {activeDownloads.map(item => (
+                    <View key={item.id} style={styles.activeDownloadCard}>
+                        {/* Glow Effect */}
+                        <View style={styles.activeGlow} />
 
-           <View style={{ flexDirection: 'row', gap: 16 }}>
-              <View style={styles.activePosterWrapper}>
-                 <Image 
-                    source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuABIidZj6YoRffhKLY22LrqhqlW_lhKEkUAUQwmAI3wdZofzjZe2ZzpKR9XUkD3ogEq6JrD732mrj03fizq3cfDGYKx4PHAvblUJZMIZEJ-vpui67wyY9dmo0mgWKuMJDa8mftrmms-TLl9CydCyTZGE7bqZSBw0QAqVkxzzbjyK_ZTqp7ZHFVsAPstUVOjp1T6L8wvEdXGzm8mF0KNGsNMl9z8hgMSE-YomuEvMCvkxoQbp0lcfhkhRH_p1g0VURns5xCNs6a6-Yhe' }} 
-                    style={styles.posterImage} 
-                 />
-                 <View style={styles.posterOverlay} />
-              </View>
-              
-              <View style={{ flex: 1, justifyContent: 'center' }}>
-                 <View style={styles.activeHeader}>
-                    <Text style={styles.movieTitle} numberOfLines={1}>Dune: Part Two</Text>
-                    <TouchableOpacity>
-                       <MaterialIcons name="close" size={20} color="#9ca3af" />
-                    </TouchableOpacity>
-                 </View>
+                        <View style={{ flexDirection: 'row', gap: 16 }}>
+                            <View style={styles.activePosterWrapper}>
+                                {item.posterUrl ? (
+                                    <Image source={{ uri: item.posterUrl }} style={styles.posterImage} />
+                                ) : (
+                                    <View style={[styles.posterImage, { backgroundColor: '#333' }]} />
+                                )}
+                                <View style={styles.posterOverlay} />
+                            </View>
+                            
+                            <View style={{ flex: 1, justifyContent: 'center' }}>
+                                <View style={styles.activeHeader}>
+                                    <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
+                                    <TouchableOpacity onPress={() => deleteDownload(item.id)}>
+                                        <MaterialIcons name="close" size={20} color="#9ca3af" />
+                                    </TouchableOpacity>
+                                </View>
 
-                 <View style={styles.activeMeta}>
-                    <Text style={styles.activeSpeed}>3.5 MB/s</Text>
-                    <View style={styles.activeDot} />
-                    <Text style={styles.activeTime}>5 mins remaining</Text>
-                 </View>
+                                <View style={styles.activeMeta}>
+                                    <Text style={styles.activeSpeed}>{item.status === 'paused' ? 'Paused' : 'Downloading...'}</Text>
+                                    <View style={styles.activeDot} />
+                                    <Text style={styles.activeTime}>{item.quality}</Text>
+                                </View>
 
-                 {/* Progress */}
-                 <View style={styles.progressBarWrapper}>
-                    <View style={styles.progressLabels}>
-                       <Text style={styles.progressText}>45%</Text>
-                       <Text style={styles.progressText}>12.4GB</Text>
+                                {/* Progress */}
+                                <View style={styles.progressBarWrapper}>
+                                    <View style={styles.progressLabels}>
+                                        <Text style={styles.progressText}>{Math.round(item.progress)}%</Text>
+                                        <Text style={styles.progressText}>{item.size}</Text>
+                                    </View>
+                                    <View style={styles.progressTrack}>
+                                        <View style={[styles.progressFill, { width: `${item.progress}%` }]} />
+                                    </View>
+                                </View>
+
+                                {/* Controls */}
+                                {item.status === 'downloading' ? (
+                                    <TouchableOpacity style={styles.pauseBtn} onPress={() => pauseDownload(item.id)}>
+                                        <MaterialIcons name="pause" size={18} color="white" />
+                                        <Text style={styles.pauseText}>Pause</Text>
+                                    </TouchableOpacity>
+                                ) : (
+                                    <TouchableOpacity style={styles.pauseBtn} onPress={() => resumeDownload(item.id)}>
+                                        <MaterialIcons name="play-arrow" size={18} color="white" />
+                                        <Text style={styles.pauseText}>Resume</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        </View>
                     </View>
-                    <View style={styles.progressTrack}>
-                       <View style={[styles.progressFill, { width: '45%' }]} />
-                    </View>
-                 </View>
-
-                 {/* Controls */}
-                 <TouchableOpacity style={styles.pauseBtn}>
-                    <MaterialIcons name="pause" size={18} color="white" />
-                    <Text style={styles.pauseText}>Pause</Text>
-                 </TouchableOpacity>
-              </View>
-           </View>
-        </View>
+                ))}
+            </>
+        )}
 
         {/* Downloaded Section */}
         <View style={styles.sectionHeader}>
            <Text style={styles.sectionTitle}>Downloaded</Text>
-           <TouchableOpacity><Text style={styles.manageText}>Manage</Text></TouchableOpacity>
+           {/* <TouchableOpacity><Text style={styles.manageText}>Manage</Text></TouchableOpacity> */}
         </View>
 
-        <View style={styles.downloadList}>
-           {DOWNLOADED_ITEMS.map(item => (
-              <View key={item.id} style={styles.downloadItem}>
-                 <View style={styles.downloadPosterWrapper}>
-                    <Image source={{ uri: item.image }} style={styles.posterImage} />
-                    <View style={styles.playOverlay}>
-                       <MaterialIcons name="play-circle-outline" size={28} color="white" />
+        {completedDownloads.length === 0 ? (
+            <View style={styles.emptyContainer}>
+                <MaterialIcons name="cloud-download" size={64} color="#374151" />
+                <Text style={styles.emptyText}>No downloads yet</Text>
+                <Text style={styles.emptySubtext}>Movies and episodes you download will appear here.</Text>
+            </View>
+        ) : (
+            <View style={styles.downloadList}>
+            {completedDownloads.map(item => (
+                <View key={item.id} style={styles.downloadItem}>
+                    <View style={styles.downloadPosterWrapper}>
+                        {item.posterUrl ? (
+                            <Image source={{ uri: item.posterUrl }} style={styles.posterImage} />
+                        ) : (
+                             <View style={[styles.posterImage, { backgroundColor: '#333' }]} />
+                        )}
+                        <View style={styles.playOverlay}>
+                            <MaterialIcons name="play-circle-outline" size={28} color="white" />
+                        </View>
                     </View>
-                 </View>
-                 
-                 <View style={styles.itemContent}>
-                    <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
-                    <View style={styles.itemMeta}>
-                       <Text style={styles.metaText}>{item.duration}</Text>
-                       <View style={styles.metaDot} />
-                       <Text style={styles.metaText}>{item.size}</Text>
+                    
+                    <View style={styles.itemContent}>
+                        <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
+                        <View style={styles.itemMeta}>
+                            <Text style={styles.metaText}>{item.quality}</Text>
+                            <View style={styles.metaDot} />
+                            <Text style={styles.metaText}>{item.size}</Text>
+                        </View>
                     </View>
-                 </View>
 
-                 <View style={styles.itemActions}>
-                    <TouchableOpacity style={styles.playBtn}>
-                       <MaterialIcons name="play-arrow" size={24} color="white" />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.deleteBtn}>
-                       <MaterialIcons name="delete-outline" size={20} color="#9ca3af" />
-                    </TouchableOpacity>
-                 </View>
-              </View>
-           ))}
-        </View>
-
-        {/* Auto Download Banner */}
-        <View style={styles.autoDownloadBanner}>
-           <MaterialIcons name="cloud-download" size={48} color="rgba(255,255,255,0.2)" />
-           <Text style={styles.autoDownloadText}>Auto-downloads enabled for "My List"</Text>
-        </View>
+                    <View style={styles.itemActions}>
+                        <TouchableOpacity style={styles.playBtn} onPress={() => {
+                            // Logic to play local file
+                            // Could navigate to player screen or open modal
+                            Alert.alert('Play', 'Open player with local URI: ' + item.uri);
+                        }}>
+                            <MaterialIcons name="play-arrow" size={24} color="white" />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.deleteBtn} onPress={() => Alert.alert('Delete', `Delete ${item.title}?`, [{text: 'Cancel'}, {text: 'Delete', style: 'destructive', onPress: () => deleteDownload(item.id)}])}>
+                            <MaterialIcons name="delete-outline" size={20} color="#9ca3af" />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            ))}
+            </View>
+        )}
 
         {/* Padding for Bottom Nav */}
         <View style={{ height: 100 }} />
@@ -521,5 +531,20 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     fontSize: 14,
     marginTop: 8,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 64,
+    gap: 16,
+  },
+  emptyText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  emptySubtext: {
+    color: '#9ca3af',
+    fontSize: 14,
   },
 });

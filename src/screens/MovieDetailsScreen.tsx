@@ -7,6 +7,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PortraitCard } from '../components/MovieCard';
 import { getMovieDetails, getMovieCredits, getSimilarMovies, getBackdropUrl, getProfileUrl, getPosterUrl, getMovieVideos, getMovieTrailer, getYouTubeUrl } from '../services/tmdb';
 import { TMDBMovieDetails, TMDBCredits, TMDBMovie, TMDBCastMember, TMDBVideo } from '../types/tmdb';
+import { useMovieStreams } from '../hooks/useMovieStreams';
+import { processExternalStreams } from '../utils/streamUtils';
+import ShowfimPlayer from '../components/player/ShowfimPlayer';
+import DownloadModal from '../components/DownloadModal';
+import StreamLoadingModal from '../components/StreamLoadingModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -20,6 +25,7 @@ interface MovieDetailsScreenProps {
 export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMoviePress }: MovieDetailsScreenProps) {
   const [isPlayingTrailer, setIsPlayingTrailer] = useState(false);
   const [showDownloadSheet, setShowDownloadSheet] = useState(false);
+  const [showPlayer, setShowPlayer] = useState(false);
   const [selectedResolution, setSelectedResolution] = useState('1080p');
   
   // TMDB Data State
@@ -28,6 +34,14 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
   const [similarMovies, setSimilarMovies] = useState<TMDBMovie[]>([]);
   const [trailer, setTrailer] = useState<TMDBVideo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isWaitingForStream, setIsWaitingForStream] = useState(false);
+
+  // Streaming Data
+  const { streams, loading: streamsLoading, hasFetched } = useMovieStreams(movieId || 0);
+
+  // Process streams for player and download
+  const processedSources = streams ? processExternalStreams(streams.externalStreams) : [];
+  const subtitles = streams?.captions || [];
 
   // Fetch movie data
   useEffect(() => {
@@ -93,6 +107,21 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
     { id: '360p', label: '360p Low', desc: 'Minimum size', size: '250 MB', tag: '', icon: 'data-saver-off' },
   ];
 
+  // Watch stream effect
+  useEffect(() => {
+    if (isWaitingForStream && !streamsLoading && hasFetched) {
+      setIsWaitingForStream(false);
+      
+      const sources = processExternalStreams(streams?.externalStreams || []);
+      if (sources.length > 0) {
+        setShowPlayer(true);
+      } else {
+        // Fallback or error
+        Alert.alert('No Sources', 'Sorry, no stream sources found for this movie yet.');
+      }
+    }
+  }, [isWaitingForStream, streamsLoading, hasFetched, streams]);
+
   // Loading state
   if (loading || !movie) {
     return (
@@ -110,12 +139,32 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
   const year = movie.release_date?.split('-')[0] || 'N/A';
   const rating = movie.vote_average?.toFixed(1) || 'N/A';
 
+  const handleWatchNow = () => {
+    // If we have streams already, play
+    const sources = streams ? processExternalStreams(streams.externalStreams) : [];
+    if (sources.length > 0) {
+      setShowPlayer(true);
+      return;
+    }
+
+    // If loading or not fetched, show waiting modal
+    if (streamsLoading || !hasFetched) {
+      setIsWaitingForStream(true);
+    } else {
+      // Fetched but empty
+      Alert.alert('No Sources', 'Sorry, no stream sources found for this movie yet.');
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Standard Header (Hidden when playing trailer) */}
-      {!isPlayingTrailer && (
+      {/* Loading Modal */}
+      <StreamLoadingModal visible={isWaitingForStream} message="Finding best streams..." />
+
+      {/* Standard Header (Hidden when playing trailer or player) */}
+      {!isPlayingTrailer && !showPlayer && (
         <View style={styles.header}>
           <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
             <TouchableOpacity style={styles.iconButton} onPress={onBack}>
@@ -210,7 +259,7 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
 
                 <View style={styles.actionButtonsCol}>
                   <View style={styles.actionRow}>
-                      <TouchableOpacity style={styles.watchNowBtn}>
+                      <TouchableOpacity style={styles.watchNowBtn} onPress={handleWatchNow}>
                         <MaterialIcons name="play-arrow" size={24} color="white" />
                         <Text style={styles.watchNowText}>Watch Now</Text>
                       </TouchableOpacity>
@@ -301,91 +350,30 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
 
       </ScrollView>
 
-      {/* Resolution Selector Bottom Sheet */}
-      {showDownloadSheet && (
-        <>
-          {/* Backdrop */}
-          <TouchableOpacity 
-            style={StyleSheet.absoluteFill} 
-            activeOpacity={1} 
-            onPress={() => setShowDownloadSheet(false)}
-          >
-             <View style={styles.backdrop} />
-          </TouchableOpacity>
+      {/* Download Modal */}
+      <DownloadModal
+        visible={showDownloadSheet}
+        onClose={() => setShowDownloadSheet(false)}
+        sources={processedSources}
+        subtitles={subtitles}
+        title={movie?.title || 'Movie'}
+        posterUrl={movie?.poster_path ? getPosterUrl(movie.poster_path) : ''}
+        loading={streamsLoading}
+      />
 
-          {/* Sheet */}
-          <View style={styles.bottomSheet}>
-             {/* Handle */}
-             <View style={styles.sheetHandleWrapper}>
-                <View style={styles.sheetHandle} />
-             </View>
-
-             {/* Header */}
-             <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>Select Quality</Text>
-                <TouchableOpacity onPress={() => setShowDownloadSheet(false)} style={styles.sheetCloseBtn}>
-                   <MaterialIcons name="close" size={24} color="rgba(255,255,255,0.4)" />
-                </TouchableOpacity>
-             </View>
-
-             {/* List */}
-             <ScrollView style={styles.resolutionList} contentContainerStyle={{ paddingVertical: 8 }}>
-                {RESOLUTIONS.map(res => {
-                  const isSelected = selectedResolution === res.id;
-                  return (
-                   <TouchableOpacity 
-                      key={res.id} 
-                      style={[styles.resolutionOption, isSelected && styles.resolutionOptionSelected]}
-                      onPress={() => setSelectedResolution(res.id)}
-                      activeOpacity={0.8}
-                   >
-                      <View style={styles.resolutionLeft}>
-                         {/* Radio Indicator */}
-                         <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
-                            {isSelected && <View style={styles.radioInner} />}
-                         </View>
-                         
-                         <View style={styles.resolutionInfo}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                               <Text style={styles.resolutionLabel}>{res.label}</Text>
-                               {res.tag !== '' && (
-                                 <View style={styles.resTag}><Text style={styles.resTagText}>{res.tag}</Text></View>
-                               )}
-                            </View>
-                            <Text style={styles.resolutionDesc}>{res.desc} • {res.size}</Text>
-                         </View>
-                      </View>
-                      
-                      <MaterialIcons 
-                        name={res.icon as any} 
-                        size={32} 
-                        color={isSelected ? '#9727e7' : 'rgba(255,255,255,0.2)'} 
-                      />
-                   </TouchableOpacity>
-                  );
-                })}
-                
-                <View style={styles.disclaimer}>
-                   <MaterialIcons name="info-outline" size={16} color="#9ca3af" />
-                   <Text style={styles.disclaimerText}>
-                      Downloads use storage space on your device. Higher quality videos take up more space and time to download.
-                   </Text>
-                </View>
-             </ScrollView>
-
-             {/* Footer Button */}
-             <View style={styles.sheetFooter}>
-                <TouchableOpacity 
-                  style={styles.downloadConfirmBtn} 
-                  onPress={() => setShowDownloadSheet(false)}
-                  activeOpacity={0.9}
-                >
-                   <MaterialIcons name="download" size={24} color="white" />
-                   <Text style={styles.downloadConfirmText}>Download ({RESOLUTIONS.find(r => r.id === selectedResolution)?.size})</Text>
-                </TouchableOpacity>
-             </View>
-          </View>
-        </>
+      {/* Video Player Modal */}
+      {showPlayer && (
+        <View style={StyleSheet.absoluteFillObject}>
+          <ShowfimPlayer
+            sources={processedSources}
+            subtitles={subtitles}
+            title={movie?.title || 'Movie'}
+            contentId={`movie-${movieId}`}
+            poster={movie?.backdrop_path ? getBackdropUrl(movie.backdrop_path) : undefined}
+            autoPlay={true}
+            onClose={() => setShowPlayer(false)}
+          />
+        </View>
       )}
 
     </View>
