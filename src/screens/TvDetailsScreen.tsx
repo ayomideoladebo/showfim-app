@@ -1,17 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ImageBackground, TouchableOpacity, ScrollView, Image, Dimensions, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ImageBackground, TouchableOpacity, ScrollView, Image, Dimensions, ActivityIndicator, Alert, BackHandler } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getTVDetails, getTVCredits, getTVSeasonDetails, getBackdropUrl, getProfileUrl, getStillUrl } from '../services/tmdb';
+import { getTVDetails, getTVCredits, getTVSeasonDetails, getBackdropUrl, getProfileUrl, getStillUrl, getPosterUrl } from '../services/tmdb';
 import { TMDBTVDetails, TMDBCredits, TMDBSeasonDetails, TMDBEpisode, TMDBCastMember } from '../types/tmdb';
 import { useTVShowStreams } from '../hooks/useTVShowStreams';
 import { processExternalStreams } from '../utils/streamUtils';
 import ShowfimPlayer from '../components/player/ShowfimPlayer';
 import DownloadModal from '../components/DownloadModal';
 import StreamLoadingModal from '../components/StreamLoadingModal';
+import { useWatchlist } from '../hooks/useWatchlist';
+import { fetchEpisodeStreams } from '../services/BatchDownloadService';
+import { downloadManager } from '../services/DownloadManager';
 
 const { width } = Dimensions.get('window');
 
@@ -29,12 +32,19 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   const [seasonDetails, setSeasonDetails] = useState<TMDBSeasonDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [seasonLoading, setSeasonLoading] = useState(false);
-  const [isFavorite, setIsFavorite] = useState(false);
   const [activeTab, setActiveTab] = useState<'seasons' | 'extras'>('seasons');
   
   // Streaming state
   const [showPlayer, setShowPlayer] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [showDownloadAllModal, setShowDownloadAllModal] = useState(false);
+  const [batchDownloading, setBatchDownloading] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, status: '' });
+  // Resolution selection state
+  const [fetchingStreams, setFetchingStreams] = useState(false);
+  const [episodeStreamsData, setEpisodeStreamsData] = useState<Array<{ episodeNum: number; name: string; sources: any[] }>>([]);
+  const [availableResolutions, setAvailableResolutions] = useState<Array<{ resolution: number; count: number }>>([]);
+  const [selectedBatchResolution, setSelectedBatchResolution] = useState<number | null>(null);
   const [isWaitingForStream, setIsWaitingForStream] = useState(false);
   const [playingEpisode, setPlayingEpisode] = useState<{ season: number; episode: number } | null>(null);
   
@@ -46,6 +56,10 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   );
   const processedSources = streams ? processExternalStreams(streams.externalStreams) : [];
   const subtitles = streams?.captions || [];
+
+  // Watchlist
+  const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
+  const inWatchlist = tvShow ? isInWatchlist(tvShow.id, 'tv') : false;
 
   // Fetch TV show data
   useEffect(() => {
@@ -98,6 +112,37 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
     fetchSeason();
   }, [tvId, selectedSeason, loading]);
 
+  // Handle hardware back button (must be before any early returns)
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showPlayer) {
+        setShowPlayer(false);
+        return true;
+      }
+      if (showDownloadModal) {
+        setShowDownloadModal(false);
+        return true;
+      }
+      onBack();
+      return true;
+    });
+    return () => backHandler.remove();
+  }, [showPlayer, showDownloadModal, onBack]);
+
+  // Watch stream effect (must be before any early returns)
+  useEffect(() => {
+    if (isWaitingForStream && !streamsLoading && playingEpisode) {
+      if (streams?.externalStreams && streams.externalStreams.length > 0) {
+        setIsWaitingForStream(false);
+        setShowPlayer(true);
+      } else if (hasFetched) {
+        setIsWaitingForStream(false);
+        setPlayingEpisode(null);
+        Alert.alert('No Sources', 'Sorry, no stream sources found for this episode yet.');
+      }
+    }
+  }, [isWaitingForStream, streamsLoading, hasFetched, streams, playingEpisode]);
+
   // Helper functions
   const formatRuntime = (minutes: number) => {
     if (minutes < 60) return `${minutes}m`;
@@ -128,20 +173,6 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   // Get seasons for tabs (exclude season 0 which is specials)
   const seasons = tvShow.seasons?.filter(s => s.season_number > 0) || [];
 
-  // Watch stream effect
-  useEffect(() => {
-    if (isWaitingForStream && !streamsLoading && playingEpisode) {
-      if (streams?.externalStreams && streams.externalStreams.length > 0) {
-        setIsWaitingForStream(false);
-        setShowPlayer(true);
-      } else if (hasFetched) {
-        setIsWaitingForStream(false);
-        setPlayingEpisode(null); // Reset selection
-        Alert.alert('No Sources', 'Sorry, no stream sources found for this episode yet.');
-      }
-    }
-  }, [isWaitingForStream, streamsLoading, hasFetched, streams, playingEpisode]);
-
   // Handle episode play
   const handlePlayEpisode = (episode: TMDBEpisode) => {
     // If playing same episode and data ready
@@ -163,6 +194,235 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
     setShowDownloadModal(true);
   };
 
+  // Handle download all episodes in season
+  const handleDownloadAll = () => {
+    if (!tvShow || episodes.length === 0) return;
+    
+    Alert.alert(
+      `Download Season ${selectedSeason}`,
+      `This will scan all ${episodes.length} episodes for available resolutions. Continue?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Continue', 
+          onPress: () => {
+            setShowDownloadAllModal(true);
+            fetchAllEpisodeStreams();
+          }
+        }
+      ]
+    );
+  };
+
+  // Fetch streams for all episodes and analyze resolutions
+  const fetchAllEpisodeStreams = async () => {
+    if (!tvShow || episodes.length === 0) return;
+    
+    setFetchingStreams(true);
+    setEpisodeStreamsData([]);
+    setAvailableResolutions([]);
+    setSelectedBatchResolution(null);
+    setBatchProgress({ current: 0, total: episodes.length, status: 'Scanning episodes...' });
+    
+    const allStreamsData: Array<{ episodeNum: number; name: string; sources: any[] }> = [];
+    const resolutionMap: Map<number, number> = new Map(); // resolution -> count
+    
+    for (let i = 0; i < episodes.length; i++) {
+      const episode = episodes[i];
+      const episodeNum = episode.episode_number;
+      
+      setBatchProgress({
+        current: i + 1,
+        total: episodes.length,
+        status: `Scanning E${episodeNum}: ${episode.name || 'Episode ' + episodeNum}`
+      });
+      
+      try {
+        const { sources, error } = await fetchEpisodeStreams(
+          tvId || 0,
+          selectedSeason,
+          episodeNum
+        );
+        
+        if (!error && sources.length > 0) {
+          allStreamsData.push({
+            episodeNum,
+            name: episode.name || `Episode ${episodeNum}`,
+            sources
+          });
+          
+          // Track available resolutions
+          sources.forEach((source: any) => {
+            if (source.resolution) {
+              const count = resolutionMap.get(source.resolution) || 0;
+              resolutionMap.set(source.resolution, count + 1);
+            }
+          });
+        } else {
+          allStreamsData.push({
+            episodeNum,
+            name: episode.name || `Episode ${episodeNum}`,
+            sources: []
+          });
+        }
+      } catch (err) {
+        allStreamsData.push({
+          episodeNum,
+          name: episode.name || `Episode ${episodeNum}`,
+          sources: []
+        });
+      }
+      
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    
+    setEpisodeStreamsData(allStreamsData);
+    
+    // Convert resolution map to sorted array
+    const resolutions = Array.from(resolutionMap.entries())
+      .map(([resolution, count]) => ({ resolution, count }))
+      .sort((a, b) => b.resolution - a.resolution); // Sort descending (highest first)
+    
+    setAvailableResolutions(resolutions);
+    setFetchingStreams(false);
+    
+    // Auto-select the resolution with most episodes
+    if (resolutions.length > 0) {
+      const maxCount = Math.max(...resolutions.map(r => r.count));
+      const bestResolution = resolutions.find(r => r.count === maxCount);
+      if (bestResolution) {
+        setSelectedBatchResolution(bestResolution.resolution);
+      }
+    }
+  };
+
+  // Start batch download of all episodes with selected resolution
+  const startBatchDownload = async () => {
+    if (!tvShow || episodeStreamsData.length === 0 || !selectedBatchResolution) return;
+    
+    setBatchDownloading(true);
+    
+    // Find episodes missing the selected resolution
+    const missingEpisodes: Array<{ episodeNum: number; name: string; alternatives: number[] }> = [];
+    
+    episodeStreamsData.forEach(ep => {
+      if (ep.sources.length === 0) return; // Skip episodes with no sources
+      
+      const hasSelectedRes = ep.sources.some((s: any) => s.resolution === selectedBatchResolution);
+      if (!hasSelectedRes) {
+        const alternatives = ep.sources.map((s: any) => s.resolution).filter(Boolean);
+        missingEpisodes.push({
+          episodeNum: ep.episodeNum,
+          name: ep.name,
+          alternatives: [...new Set(alternatives)] as number[]
+        });
+      }
+    });
+    
+    // If there are episodes missing the selected resolution, ask user what to do
+    if (missingEpisodes.length > 0) {
+      const episodesList = missingEpisodes.map(e => 
+        `E${e.episodeNum}: ${e.alternatives.length > 0 ? e.alternatives.map(r => `${r}p`).join(', ') : 'No sources'}`
+      ).join('\n');
+      
+      Alert.alert(
+        'Resolution Mismatch',
+        `${missingEpisodes.length} episode(s) don't have ${selectedBatchResolution}p:\n\n${episodesList}\n\nWhat would you like to do?`,
+        [
+          { 
+            text: 'Cancel', 
+            style: 'cancel',
+            onPress: () => setBatchDownloading(false)
+          },
+          { 
+            text: 'Skip These', 
+            onPress: () => executeDownload(false)
+          },
+          { 
+            text: 'Use Best Available', 
+            onPress: () => executeDownload(true)
+          }
+        ]
+      );
+      return;
+    }
+    
+    // No missing episodes, proceed directly
+    executeDownload(false);
+  };
+
+  // Execute the batch download with current settings
+  const executeDownload = async (useBestAvailable: boolean) => {
+    if (!tvShow || !selectedBatchResolution) return;
+    
+    let successCount = 0;
+    let failCount = 0;
+    const totalEps = episodeStreamsData.filter(ep => ep.sources.length > 0).length;
+    
+    for (let i = 0; i < episodeStreamsData.length; i++) {
+      const ep = episodeStreamsData[i];
+      
+      if (ep.sources.length === 0) {
+        failCount++;
+        continue;
+      }
+      
+      setBatchProgress({
+        current: successCount + failCount + 1,
+        total: totalEps,
+        status: `Queuing E${ep.episodeNum}: ${ep.name}`
+      });
+      
+      // Find source with selected resolution, or best available
+      let source = ep.sources.find((s: any) => s.resolution === selectedBatchResolution);
+      
+      if (!source && useBestAvailable) {
+        // Use highest available resolution
+        source = ep.sources.sort((a: any, b: any) => (b.resolution || 0) - (a.resolution || 0))[0];
+      }
+      
+      if (!source) {
+        failCount++;
+        continue;
+      }
+      
+      // Queue the download
+      downloadManager.startDownload({
+        id: `${tvId}_${selectedSeason}_${ep.episodeNum}_${source.resolution}`,
+        contentId: String(tvId),
+        title: `${tvShow.name} - S${selectedSeason}E${ep.episodeNum}`,
+        posterUrl: tvShow.poster_path ? getPosterUrl(tvShow.poster_path) : '',
+        type: 'tv',
+        season: selectedSeason,
+        episode: ep.episodeNum,
+        quality: `${source.resolution}p`,
+        remoteUrl: source.url,
+        size: source.size || 'Unknown',
+      });
+      
+      successCount++;
+      
+      // Small delay between queuing
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    setBatchDownloading(false);
+    setShowDownloadAllModal(false);
+    
+    // Reset state
+    setEpisodeStreamsData([]);
+    setAvailableResolutions([]);
+    setSelectedBatchResolution(null);
+    
+    // Show completion message
+    Alert.alert(
+      'Download Complete',
+      `Queued ${successCount} episodes for download.${failCount > 0 ? `\n\n${failCount} episodes could not be added.` : ''}\n\nCheck the Downloads screen to monitor progress.`,
+      [{ text: 'OK' }]
+    );
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -182,13 +442,27 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
               <MaterialIcons name="cast" size={20} color="white" />
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.iconButton, isFavorite && { borderColor: '#9727e7' }]}
-              onPress={() => setIsFavorite(!isFavorite)}
+              style={[styles.iconButton, inWatchlist && { borderColor: '#9727e7' }]}
+              onPress={() => {
+                if (!tvShow) return;
+                if (inWatchlist) {
+                  removeFromWatchlist(tvShow.id, 'tv');
+                } else {
+                  addToWatchlist({
+                    id: tvShow.id,
+                    type: 'tv',
+                    title: tvShow.name,
+                    posterPath: tvShow.poster_path || '',
+                    backdropPath: tvShow.backdrop_path || '',
+                    voteAverage: tvShow.vote_average,
+                  });
+                }
+              }}
             >
               <MaterialIcons 
-                name={isFavorite ? "favorite" : "favorite-border"} 
+                name={inWatchlist ? "bookmark" : "bookmark-outline"} 
                 size={20} 
-                color={isFavorite ? "#9727e7" : "white"} 
+                color={inWatchlist ? "#9727e7" : "white"} 
               />
             </TouchableOpacity>
           </View>
@@ -295,9 +569,9 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
           {activeTab === 'seasons' ? (
             <>
               {/* Download All Button */}
-              <TouchableOpacity style={styles.downloadAllButton}>
+              <TouchableOpacity style={styles.downloadAllButton} onPress={handleDownloadAll}>
                 <MaterialIcons name="download" size={20} color="#9727e7" />
-                <Text style={styles.downloadAllText}>Download All</Text>
+                <Text style={styles.downloadAllText}>Download Season {selectedSeason}</Text>
               </TouchableOpacity>
 
               {/* Episodes List */}
@@ -473,7 +747,185 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
             poster={tvShow?.backdrop_path ? getBackdropUrl(tvShow.backdrop_path) : undefined}
             autoPlay={true}
             onClose={() => setShowPlayer(false)}
+            episodeInfo={playingEpisode ? {
+              season: playingEpisode.season,
+              episode: playingEpisode.episode,
+              totalEpisodes: episodes.length,
+              hasNextEpisode: playingEpisode.episode < episodes.length,
+            } : undefined}
+            onNextEpisode={() => {
+              if (playingEpisode && playingEpisode.episode < episodes.length) {
+                // Play next episode in same season
+                const nextEp = playingEpisode.episode + 1;
+                setPlayingEpisode({ season: playingEpisode.season, episode: nextEp });
+                setShowPlayer(false);
+                // Trigger new stream fetch and show player
+                setTimeout(() => {
+                  setIsWaitingForStream(true);
+                }, 100);
+              }
+            }}
           />
+        </View>
+      )}
+
+      {/* Download All Modal - With resolution selection */}
+      {showDownloadAllModal && (
+        <View style={[StyleSheet.absoluteFillObject, styles.downloadAllOverlay]}>
+          <View style={styles.downloadAllContent}>
+            <Text style={styles.downloadAllTitle}>Download Season {selectedSeason}</Text>
+            
+            {/* Phase 1: Scanning Episodes */}
+            {fetchingStreams && (
+              <>
+                <Text style={styles.downloadAllSubtitle}>
+                  Scanning {batchProgress.current} of {batchProgress.total} episodes
+                </Text>
+                
+                <View style={styles.batchProgressContainer}>
+                  <ActivityIndicator size="small" color="#9727e7" />
+                  <Text style={styles.batchProgressText} numberOfLines={2}>
+                    {batchProgress.status}
+                  </Text>
+                </View>
+                
+                <View style={styles.batchProgressBar}>
+                  <View 
+                    style={[
+                      styles.batchProgressFill, 
+                      { width: `${(batchProgress.current / batchProgress.total) * 100}%` }
+                    ]} 
+                  />
+                </View>
+                
+                <Text style={styles.downloadAllInfoText}>
+                  Analyzing available resolutions...
+                </Text>
+              </>
+            )}
+            
+            {/* Phase 2: Resolution Selection */}
+            {!fetchingStreams && availableResolutions.length > 0 && !batchDownloading && (
+              <>
+                <Text style={styles.downloadAllSubtitle}>
+                  Select download quality
+                </Text>
+                
+                <View style={styles.resolutionList}>
+                  {availableResolutions.map((res) => (
+                    <TouchableOpacity 
+                      key={res.resolution}
+                      style={[
+                        styles.resolutionOption,
+                        selectedBatchResolution === res.resolution && styles.resolutionOptionSelected
+                      ]}
+                      onPress={() => setSelectedBatchResolution(res.resolution)}
+                    >
+                      <View style={styles.resolutionInfo}>
+                        <Text style={[
+                          styles.resolutionText,
+                          selectedBatchResolution === res.resolution && styles.resolutionTextSelected
+                        ]}>
+                          {res.resolution}p
+                        </Text>
+                        <Text style={styles.resolutionCount}>
+                          {res.count}/{episodeStreamsData.length} episodes
+                        </Text>
+                      </View>
+                      {selectedBatchResolution === res.resolution && (
+                        <MaterialIcons name="check-circle" size={22} color="#9727e7" />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                
+                {/* Warning if not all episodes have selected resolution */}
+                {selectedBatchResolution && 
+                  availableResolutions.find(r => r.resolution === selectedBatchResolution)?.count !== episodeStreamsData.filter(e => e.sources.length > 0).length && (
+                  <View style={styles.downloadAllWarning}>
+                    <MaterialIcons name="warning" size={18} color="#f59e0b" />
+                    <Text style={styles.downloadAllWarningText}>
+                      Some episodes don't have {selectedBatchResolution}p
+                    </Text>
+                  </View>
+                )}
+                
+                <View style={styles.downloadAllButtons}>
+                  <TouchableOpacity 
+                    style={[
+                      styles.downloadAllStartButton,
+                      !selectedBatchResolution && { opacity: 0.5 }
+                    ]}
+                    onPress={startBatchDownload}
+                    disabled={!selectedBatchResolution}
+                  >
+                    <MaterialIcons name="download" size={20} color="white" />
+                    <Text style={styles.downloadAllStartText}>Start Download</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.downloadAllCancelButton}
+                    onPress={() => {
+                      setShowDownloadAllModal(false);
+                      setEpisodeStreamsData([]);
+                      setAvailableResolutions([]);
+                      setSelectedBatchResolution(null);
+                    }}
+                  >
+                    <Text style={styles.downloadAllCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+            
+            {/* Phase 3: Downloading */}
+            {batchDownloading && (
+              <>
+                <Text style={styles.downloadAllSubtitle}>
+                  Queuing {batchProgress.current} of {batchProgress.total} episodes
+                </Text>
+                
+                <View style={styles.batchProgressContainer}>
+                  <ActivityIndicator size="small" color="#9727e7" />
+                  <Text style={styles.batchProgressText} numberOfLines={2}>
+                    {batchProgress.status}
+                  </Text>
+                </View>
+                
+                <View style={styles.batchProgressBar}>
+                  <View 
+                    style={[
+                      styles.batchProgressFill, 
+                      { width: `${(batchProgress.current / Math.max(batchProgress.total, 1)) * 100}%` }
+                    ]} 
+                  />
+                </View>
+              </>
+            )}
+            
+            {/* No sources found */}
+            {!fetchingStreams && availableResolutions.length === 0 && !batchDownloading && (
+              <>
+                <Text style={styles.downloadAllSubtitle}>
+                  No download sources found
+                </Text>
+                
+                <View style={styles.downloadAllInfo}>
+                  <MaterialIcons name="error-outline" size={20} color="#ef4444" />
+                  <Text style={styles.downloadAllInfoText}>
+                    Sorry, we couldn't find any download sources for this season.
+                  </Text>
+                </View>
+                
+                <TouchableOpacity 
+                  style={styles.downloadAllCancelButton}
+                  onPress={() => setShowDownloadAllModal(false)}
+                >
+                  <Text style={styles.downloadAllCancelText}>Close</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
         </View>
       )}
 
@@ -890,5 +1342,150 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#9727e7',
     fontFamily: 'Manrope_600SemiBold',
+  },
+  // Download All Modal Styles
+  downloadAllOverlay: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    zIndex: 1000,
+  },
+  downloadAllContent: {
+    width: '85%',
+    backgroundColor: '#1a1121',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(151, 39, 231, 0.3)',
+  },
+  downloadAllTitle: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  downloadAllSubtitle: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  downloadAllInfo: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(151, 39, 231, 0.1)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    gap: 12,
+  },
+  downloadAllInfoText: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  downloadAllButtons: {
+    gap: 12,
+  },
+  downloadAllStartButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#9727e7',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  downloadAllStartText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  downloadAllCancelButton: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  downloadAllCancelText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  // Batch Progress Styles
+  batchProgressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(151, 39, 231, 0.1)',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  batchProgressText: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  batchProgressBar: {
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  batchProgressFill: {
+    height: '100%',
+    backgroundColor: '#9727e7',
+    borderRadius: 3,
+  },
+  // Resolution selection styles
+  resolutionList: {
+    marginVertical: 16,
+    gap: 8,
+  },
+  resolutionOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  resolutionOptionSelected: {
+    borderColor: '#9727e7',
+    backgroundColor: 'rgba(151, 39, 231, 0.15)',
+  },
+  resolutionInfo: {
+    gap: 4,
+  },
+  resolutionText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  resolutionTextSelected: {
+    color: '#9727e7',
+  },
+  resolutionCount: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+  },
+  downloadAllWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  downloadAllWarningText: {
+    color: '#f59e0b',
+    fontSize: 12,
+    flex: 1,
   },
 });

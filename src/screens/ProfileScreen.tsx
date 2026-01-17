@@ -7,6 +7,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../providers/AuthProvider';
 import AuthScreen from './AuthScreen';
 import { supabase } from '../lib/supabase';
+import { useWatchlist } from '../hooks/useWatchlist';
+import { useDownloads } from '../hooks/useDownloads';
 
 const { width } = Dimensions.get('window');
 
@@ -41,6 +43,10 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
   const { user, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  
+  // Get real counts
+  const { watchlist } = useWatchlist();
+  const { downloads } = useDownloads();
 
   useEffect(() => {
     if (user) {
@@ -311,7 +317,7 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
                  </View>
                  <View>
                     <Text style={styles.linkTitle}>My Watchlist</Text>
-                    <Text style={styles.linkSubtitle}>0 items</Text>
+                    <Text style={styles.linkSubtitle}>{watchlist.length} item{watchlist.length !== 1 ? 's' : ''}</Text>
                  </View>
               </TouchableOpacity>
 
@@ -325,7 +331,7 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
                  </View>
                  <View>
                     <Text style={styles.linkTitle}>My Downloads</Text>
-                    <Text style={styles.linkSubtitle}>0 downloads</Text>
+                    <Text style={styles.linkSubtitle}>{downloads.length} download{downloads.length !== 1 ? 's' : ''}</Text>
                  </View>
               </TouchableOpacity>
 

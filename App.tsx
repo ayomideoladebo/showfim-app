@@ -23,6 +23,8 @@ import PremiumScreen from './src/screens/PremiumScreen';
 import HelpSupportScreen from './src/screens/HelpSupportScreen';
 import ShuffleLoadingScreen from './src/screens/ShuffleLoadingScreen';
 import SecurityScreen from './src/screens/SecurityScreen';
+import ShowfimPlayer from './src/components/player/ShowfimPlayer';
+import { DownloadItem } from './src/services/DownloadManager';
 import { BottomNavigation } from './src/components/BottomNavigation';
 import { 
   useFonts, 
@@ -55,6 +57,7 @@ function MainLayout() {
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [selectedActor, setSelectedActor] = useState<any>(null);
+  const [playingDownload, setPlayingDownload] = useState<DownloadItem | null>(null);
   const [isGuest, setIsGuest] = useState(false);
 
   const [fontsLoaded] = useFonts({
@@ -113,7 +116,19 @@ function MainLayout() {
   }
 
   if (showWatchlist) {
-    return <WatchlistScreen onBack={() => setShowWatchlist(false)} />;
+    return (
+      <WatchlistScreen 
+        onBack={() => setShowWatchlist(false)} 
+        onMoviePress={(movieId) => {
+          setShowWatchlist(false);
+          setSelectedMovieId(movieId);
+        }}
+        onTvPress={(tvId) => {
+          setShowWatchlist(false);
+          setSelectedTvId(tvId);
+        }}
+      />
+    );
   }
 
   if (showSettings) {
@@ -221,6 +236,33 @@ function MainLayout() {
         }}
       />
     );
+
+  }
+
+  if (playingDownload) {
+    // Convert DownloadItem to StreamSource
+    const source = {
+      id: playingDownload.id,
+      quality: playingDownload.quality,
+      url: playingDownload.uri,
+      type: 'mp4',
+      resolution: parseInt(playingDownload.quality.replace('p', '')) || 720,
+      size: playingDownload.size,
+    };
+
+    return (
+      <View style={StyleSheet.absoluteFillObject}>
+        <ShowfimPlayer
+          sources={[source]}
+          subtitles={[]} // TODO: save/load subtitles for downloads
+          title={playingDownload.title}
+          contentId={playingDownload.contentId}
+          poster={playingDownload.posterUrl}
+          autoPlay={true}
+          onClose={() => setPlayingDownload(null)}
+        />
+      </View>
+    );
   }
 
   return (
@@ -239,7 +281,11 @@ function MainLayout() {
           onActorPress={(actorId) => setSelectedActor({ id: actorId })}
         />
       )}
-      {activeTab === 'downloads' && <DownloadsScreen />}
+      {activeTab === 'downloads' && (
+        <DownloadsScreen 
+          onPlay={(item) => setPlayingDownload(item)}
+        />
+      )}
       {activeTab === 'profile' && (
         <ProfileScreen 
           onWatchlistPress={() => setShowWatchlist(true)}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ImageBackground, TouchableOpacity, ScrollView, Image, Dimensions, ActivityIndicator, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, ImageBackground, TouchableOpacity, ScrollView, Image, Dimensions, ActivityIndicator, Linking, Alert, BackHandler } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -12,6 +12,7 @@ import { processExternalStreams } from '../utils/streamUtils';
 import ShowfimPlayer from '../components/player/ShowfimPlayer';
 import DownloadModal from '../components/DownloadModal';
 import StreamLoadingModal from '../components/StreamLoadingModal';
+import { useWatchlist } from '../hooks/useWatchlist';
 
 const { width, height } = Dimensions.get('window');
 
@@ -43,6 +44,10 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
   const processedSources = streams ? processExternalStreams(streams.externalStreams) : [];
   const subtitles = streams?.captions || [];
 
+  // Watchlist
+  const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
+  const inWatchlist = movie ? isInWatchlist(movie.id, 'movie') : false;
+
   // Fetch movie data
   useEffect(() => {
     const fetchMovieData = async () => {
@@ -70,6 +75,23 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
 
     fetchMovieData();
   }, [movieId]);
+
+  // Handle hardware back button
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showPlayer) {
+        setShowPlayer(false);
+        return true; // Prevent default behavior
+      }
+      if (showDownloadSheet) {
+        setShowDownloadSheet(false);
+        return true;
+      }
+      onBack();
+      return true;
+    });
+    return () => backHandler.remove();
+  }, [showPlayer, showDownloadSheet, onBack]);
 
   // Handle trailer button press
   const handleTrailerPress = async () => {
@@ -269,9 +291,28 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
                       </TouchableOpacity>
                   </View>
                   <View style={styles.actionRow}>
-                    <TouchableOpacity style={styles.tertiaryBtn}>
-                        <MaterialIcons name="add" size={24} color="white" />
-                        <Text style={styles.tertiaryBtnText}>Watch Later</Text>
+                    <TouchableOpacity 
+                      style={[styles.tertiaryBtn, inWatchlist && { borderColor: '#9727e7' }]}
+                      onPress={() => {
+                        if (!movie) return;
+                        if (inWatchlist) {
+                          removeFromWatchlist(movie.id, 'movie');
+                        } else {
+                          addToWatchlist({
+                            id: movie.id,
+                            type: 'movie',
+                            title: movie.title,
+                            posterPath: movie.poster_path || '',
+                            backdropPath: movie.backdrop_path || '',
+                            voteAverage: movie.vote_average,
+                          });
+                        }
+                      }}
+                    >
+                        <MaterialIcons name={inWatchlist ? "check" : "add"} size={24} color={inWatchlist ? "#9727e7" : "white"} />
+                        <Text style={[styles.tertiaryBtnText, inWatchlist && { color: '#9727e7' }]}>
+                          {inWatchlist ? 'In Watchlist' : 'Watch Later'}
+                        </Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.tertiaryBtn} onPress={() => setShowDownloadSheet(true)}>
                         <MaterialIcons name="download" size={24} color="white" />

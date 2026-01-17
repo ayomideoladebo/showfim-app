@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ImageBackground, TouchableOpacity, ScrollView, Dimensions, Image, Platform, Animated, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ImageBackground, TouchableOpacity, ScrollView, Dimensions, Image, Platform, Animated, FlatList, RefreshControl } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -9,6 +9,10 @@ import { LatestOnPlatform } from '../components/LatestOnPlatform';
 import { useRef, useState, useEffect } from 'react';
 import { getTrendingMovies, getPopularMovies, getTopRatedMovies, getUpcomingInTheaters, getTrendingTV, getPopularTV, getKDramas, getActionMovies, getComedyMovies, getDramaMovies, getActionContent, getComedyContent, getDramaContent, getPosterUrl, getBackdropUrl } from '../services/tmdb';
 import { TMDBMovie, TMDBTVShow, isTMDBMovie } from '../types/tmdb';
+import { useWatchlist } from '../hooks/useWatchlist';
+import { useContinueWatching } from '../hooks/useContinueWatching';
+import { useRecommendations } from '../hooks/useRecommendations';
+import { formatTime } from '../utils/streamUtils';
 
 const { width } = Dimensions.get('window');
 
@@ -46,6 +50,19 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Watchlist hook
+  const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
+  
+  // Continue Watching hook
+  const { items: continueWatchingItems, refresh: refreshContinueWatching } = useContinueWatching();
+  
+  // Get IDs to exclude from recommendations (items already on home screen)
+  const excludeIds = [...trendingMovies.map(m => m.id), ...popularMovies.map(m => m.id)];
+  
+  // Recommendations hook
+  const { recommendations, loading: recommendationsLoading, hasWatchHistory } = useRecommendations(excludeIds);
 
   // Fetch TMDB data on component mount
   useEffect(() => {
@@ -121,6 +138,43 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
 
     fetchMovies();
   }, []);
+
+  // Pull-to-refresh handler
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const [trending, popular, topRated, upcoming, trendingTv] = await Promise.all([
+        getTrendingMovies('week'),
+        getPopularMovies(),
+        getTopRatedMovies(),
+        getUpcomingInTheaters(),
+        getTrendingTV('week'),
+      ]);
+      
+      const topMovies = trending.slice(0, 5);
+      const topTv = trendingTv.slice(0, 5);
+      const heroContent: (TMDBMovie | TMDBTVShow)[] = [];
+      
+      for (let i = 0; i < Math.max(topMovies.length, topTv.length); i++) {
+        if (topMovies[i]) heroContent.push(topMovies[i]);
+        if (topTv[i]) heroContent.push(topTv[i]);
+      }
+      
+      setHeroSlides(heroContent);
+      setTrendingMovies(trending.slice(0, 10));
+      setPopularMovies(popular.slice(0, 10));
+      setTopRatedMovies(topRated.slice(0, 10));
+      setUpcomingMovies(upcoming.slice(0, 10));
+      setTrendingTvShows(trendingTv.slice(0, 10));
+      
+      // Refresh continue watching
+      refreshContinueWatching();
+    } catch (err) {
+      console.error('Error refreshing:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  };
   
   // Calculate width for 3-column layout - ensuring all 3 cards are fully visible
   // Section has 24px left/right padding, ScrollView has 0 left and 24px right padding
@@ -163,6 +217,15 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
         removeClippedSubviews={true}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#9727e7"
+            colors={['#9727e7']}
+            progressBackgroundColor="#2d2434"
+          />
+        }
       >
         {/* HERO SLIDER */}
         <View style={styles.heroContainer}>
@@ -230,7 +293,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
                       </View>
                     </View>
 
-                    <View style={styles.actionButtons}>
+                      <View style={styles.actionButtons}>
                       <TouchableOpacity 
                         style={styles.playButton} 
                         onPress={() => {
@@ -244,10 +307,33 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
                         <MaterialIcons name="play-arrow" size={28} color="white" />
                         <Text style={styles.playText}>Play Now</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.myListButton}>
-                        <MaterialIcons name="add" size={24} color="white" />
-                        <Text style={styles.myListText}>My List</Text>
-                      </TouchableOpacity>
+                      {(() => {
+                        const itemType = isTMDBMovie(item) ? 'movie' : 'tv';
+                        const itemTitle = isTMDBMovie(item) ? item.title : item.name;
+                        const isInList = isInWatchlist(item.id, itemType);
+                        return (
+                          <TouchableOpacity 
+                            style={[styles.myListButton, isInList && { borderColor: '#9727e7' }]}
+                            onPress={() => {
+                              if (isInList) {
+                                removeFromWatchlist(item.id, itemType);
+                              } else {
+                                addToWatchlist({
+                                  id: item.id,
+                                  type: itemType,
+                                  title: itemTitle,
+                                  posterPath: item.poster_path || '',
+                                  backdropPath: item.backdrop_path || '',
+                                  voteAverage: item.vote_average,
+                                });
+                              }
+                            }}
+                          >
+                            <MaterialIcons name={isInList ? "check" : "add"} size={24} color={isInList ? "#9727e7" : "white"} />
+                            <Text style={[styles.myListText, isInList && { color: '#9727e7' }]}>{isInList ? 'Added' : 'My List'}</Text>
+                          </TouchableOpacity>
+                        );
+                      })()}
                     </View>
                   </View>
                 </ImageBackground>
@@ -271,6 +357,37 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
 
         {/* SECTIONS */}
         <View style={styles.sectionsContainer}>
+          
+          {/* Continue Watching (only show if user has items) */}
+          {continueWatchingItems.length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Continue Watching</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
+                {continueWatchingItems.map((item) => {
+                  const remainingSeconds = item.duration - item.currentTime;
+                  const timeLeftText = `${Math.ceil(remainingSeconds / 60)} min left`;
+                  return (
+                    <ContinueWatchingCard
+                      key={`${item.type}-${item.id}`}
+                      title={item.title}
+                      image={getPosterUrl(item.posterPath)}
+                      timeLeft={timeLeftText}
+                      progress={item.progress / 100}
+                      onPress={() => {
+                        if (item.type === 'movie') {
+                          onMoviePress?.(item.id);
+                        } else {
+                          onTvPress?.(item.id);
+                        }
+                      }}
+                    />
+                  );
+                })}
+              </ScrollView>
+            </>
+          )}
           
           {/* Trending Now with Filter */}
           <View style={styles.sectionHeader}>
@@ -353,12 +470,14 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
             </ScrollView>
           )}
 
-          {/* Top Rated Movies */}
+          {/* Recommendations Section */}
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
-            <Text style={styles.sectionTitle}>Top Rated</Text>
-            <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+            <Text style={styles.sectionTitle}>
+              {hasWatchHistory ? 'Recommended For You' : 'Recommended'}
+            </Text>
+            {/* <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity> */}
           </View>
-          {loading ? (
+          {recommendationsLoading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
               {[1, 2, 3, 4, 5].map((i) => (
                 <View key={i} style={{...styles.skeletonCard, width: movieCardWidth}} />
@@ -366,12 +485,18 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
             </ScrollView>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
-              {topRatedMovies.map((movie) => (
+              {recommendations.map((item) => (
                 <PortraitCard
-                  key={movie.id}
-                  title={movie.title}
-                  image={getPosterUrl(movie.poster_path)}
-                  onPress={() => onMoviePress?.(movie.id)}
+                  key={`${item.type}-${item.id}`}
+                  title={item.title}
+                  image={getPosterUrl(item.poster_path)}
+                  onPress={() => {
+                    if (item.type === 'movie') {
+                      onMoviePress?.(item.id);
+                    } else {
+                      onTvPress?.(item.id);
+                    }
+                  }}
                   style={{ width: movieCardWidth }}
                 />
               ))}

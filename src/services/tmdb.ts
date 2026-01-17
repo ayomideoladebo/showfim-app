@@ -343,6 +343,11 @@ export async function getSimilarTV(tvId: number): Promise<TMDBTVShow[]> {
     return response.results;
 }
 
+export async function getRecommendedTV(tvId: number): Promise<TMDBTVShow[]> {
+    const response = await tmdbFetch<TMDBTVListResponse>(`/tv/${tvId}/recommendations`);
+    return response.results;
+}
+
 export async function getTVSeasonDetails(tvId: number, seasonNumber: number): Promise<TMDBSeasonDetails> {
     return tmdbFetch<TMDBSeasonDetails>(`/tv/${tvId}/season/${seasonNumber}`);
 }

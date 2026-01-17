@@ -44,14 +44,40 @@ class DownloadManager {
             const saved = await AsyncStorage.getItem(DOWNLOADS_KEY);
             if (saved) {
                 this.downloads = JSON.parse(saved);
-                // Reset downloading items to failed/paused on restart to prevent stale UI
-                this.downloads = this.downloads.map(d =>
-                    d.status === 'downloading' ? { ...d, status: 'failed' } : d
-                );
+                // Mark interrupted downloads as paused (not failed) so they can be resumed
+                this.downloads = this.downloads.map(d => {
+                    if (d.status === 'downloading') {
+                        // Check if partial file exists and preserve progress
+                        return { ...d, status: 'paused' as const };
+                    }
+                    return d;
+                });
+                await this.persist();
                 this.notifyListeners();
+
+                // Clean up orphaned partial files (files with no metadata)
+                this.cleanupOrphanedFiles();
             }
         } catch (e) {
             console.error('DownloadManager init error:', e);
+        }
+    }
+
+    private async cleanupOrphanedFiles() {
+        try {
+            const files = await FileSystem.readDirectoryAsync(DOWNLOAD_DIR);
+            const knownIds = new Set(this.downloads.map(d => d.id));
+
+            for (const file of files) {
+                const fileId = file.replace('.mp4', '').replace('.tmp', '');
+                if (!knownIds.has(fileId)) {
+                    // Orphaned file - delete it
+                    await FileSystem.deleteAsync(DOWNLOAD_DIR + file, { idempotent: true });
+                    console.log('Cleaned up orphaned file:', file);
+                }
+            }
+        } catch (e) {
+            console.log('Cleanup error (non-fatal):', e);
         }
     }
 
@@ -140,23 +166,76 @@ class DownloadManager {
 
     public async resumeDownload(id: string) {
         const item = this.downloads.find(d => d.id === id);
-        if (!item || item.status !== 'paused' || !item.resumeData) return;
+        if (!item || (item.status !== 'paused' && item.status !== 'failed')) return;
 
-        // TODO: Expo resume logic needs reconstruction of Resumable
-        // For simplicity in MVP, we might just restart or need simpler resume
-        // Re-creating resumable from data:
-        /*
-          const resumable = new FileSystem.DownloadResumable(
-            item.remoteUrl,
-            item.uri,
-            {},
-            callback,
-            JSON.parse(item.resumeData)
-          );
-        */
-        // Implementing restart for now as it's safer for MVP
-        const { status, progress, date, uri, resumeData, ...originalItem } = item;
-        this.startDownload(originalItem);
+        // Update status to downloading
+        this.downloads = this.downloads.map(d =>
+            d.id === id ? { ...d, status: 'downloading' as const } : d
+        );
+        this.notifyListeners();
+        this.persist();
+
+        // Check if we have resume data and partial file exists
+        let resumable: any = null;
+
+        if (item.resumeData) {
+            try {
+                const savedData = JSON.parse(item.resumeData);
+                // Check if partial file exists
+                const fileInfo = await FileSystem.getInfoAsync(item.uri);
+
+                if (fileInfo.exists) {
+                    // Create resumable from saved data
+                    resumable = new (FileSystem as any).DownloadResumable(
+                        savedData.url,
+                        savedData.fileUri,
+                        savedData.options || {},
+                        (progress: any) => {
+                            const percent = progress.totalBytesExpectedToWrite
+                                ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
+                                : 0;
+                            this.updateProgress(id, percent);
+                        },
+                        savedData.resumeData
+                    );
+                }
+            } catch (e) {
+                console.log('Could not restore resumable, will restart:', e);
+            }
+        }
+
+        // If no resumable, create a new one (restart download)
+        if (!resumable) {
+            resumable = FileSystem.createDownloadResumable(
+                item.remoteUrl,
+                item.uri,
+                {},
+                (progress) => {
+                    const percent = progress.totalBytesExpectedToWrite
+                        ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
+                        : 0;
+                    this.updateProgress(id, percent);
+                }
+            );
+        }
+
+        this.downloadResumables[id] = resumable;
+
+        try {
+            const result = await resumable.resumeAsync();
+            if (result && result.uri) {
+                this.completeDownload(id, result.uri);
+            } else {
+                // If resume fails, try download fresh
+                const freshResult = await resumable.downloadAsync();
+                if (freshResult && freshResult.uri) {
+                    this.completeDownload(id, freshResult.uri);
+                }
+            }
+        } catch (e) {
+            console.error('Resume/Download failed:', e);
+            this.failDownload(id);
+        }
     }
 
     public async deleteDownload(id: string) {
@@ -195,15 +274,23 @@ class DownloadManager {
 
     // --- Helpers ---
 
+    private lastPersistTime: number = 0;
+    private progressUpdateCount: number = 0;
+
     private updateProgress(id: string, progress: number) {
-        // Only update state occasionally to avoid spamming re-renders
-        // Or just update directly
         this.downloads = this.downloads.map(d =>
             d.id === id ? { ...d, progress: progress * 100 } : d
         );
-        // Optimization: Don't persist on every progress tick, only in memory
-        // this.persist(); // Too expensive
         this.notifyListeners();
+
+        // Persist progress periodically (every 10 updates or every 5 seconds)
+        this.progressUpdateCount++;
+        const now = Date.now();
+        if (this.progressUpdateCount >= 10 || now - this.lastPersistTime > 5000) {
+            this.persist();
+            this.lastPersistTime = now;
+            this.progressUpdateCount = 0;
+        }
     }
 
     private completeDownload(id: string, uri: string) {

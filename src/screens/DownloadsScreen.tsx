@@ -7,7 +7,11 @@ import { useDownloads } from '../hooks/useDownloads';
 
 const { width } = Dimensions.get('window');
 
-export default function DownloadsScreen() {
+interface DownloadsScreenProps {
+  onPlay: (item: any) => void;
+}
+
+export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
   const { 
     downloads, 
     deleteDownload, 
@@ -19,10 +23,72 @@ export default function DownloadsScreen() {
   const activeDownloads = downloads.filter(d => d.status === 'downloading' || d.status === 'paused');
   const completedDownloads = downloads.filter(d => d.status === 'completed');
 
-  // Calculate storage (Mock for now as FileSystem info is async and global)
-  // Ideally, use another hook or effect to get device storage info
-  const usedStorageGB = 32; 
-  const totalStorageGB = 128;
+  // Storage State
+  const [storage, setStorage] = React.useState({
+    totalGB: 128,
+    usedGB: 32,
+    appUsedGB: 0,
+    percentUsed: 0.25,
+    percentApp: 0.05
+  });
+
+  React.useEffect(() => {
+    updateStorageInfo();
+  }, [downloads]); // Update when downloads change
+
+  const updateStorageInfo = async () => {
+    try {
+      // Use legacy import to avoid deprecation warnings
+      const FileSystem = require('expo-file-system/legacy');
+      
+      // Get Device Storage (using legacy API)
+      let free = 0;
+      let total = 128 * 1024 * 1024 * 1024; // Default 128GB
+      
+      try {
+        free = await FileSystem.getFreeDiskStorageAsync();
+        total = await FileSystem.getTotalDiskCapacityAsync();
+      } catch (storageErr) {
+        // If storage APIs fail, use defaults
+        console.log('Storage API not available, using defaults');
+        free = 96 * 1024 * 1024 * 1024; // Default 96GB free
+      }
+      
+      const used = total - free;
+
+      // Get App Usage (Downloads folder)
+      const downloadDir = FileSystem.documentDirectory + 'downloads/';
+      let appSize = 0;
+      
+      const dirInfo = await FileSystem.getInfoAsync(downloadDir);
+      if (dirInfo.exists && dirInfo.isDirectory) {
+        const files = await FileSystem.readDirectoryAsync(downloadDir);
+        // Sum up file sizes
+        for (const file of files) {
+           const fileInfo = await FileSystem.getInfoAsync(downloadDir + file, { size: true });
+           if (fileInfo.exists && !fileInfo.isDirectory) {
+             appSize += (fileInfo.size || 0);
+           }
+        }
+      }
+
+      // Convert to GB
+      const toGB = (bytes: number) => (bytes / (1024 * 1024 * 1024));
+      
+      setStorage({
+        totalGB: Math.round(toGB(total)),
+        usedGB: parseFloat(toGB(used).toFixed(1)),
+        appUsedGB: parseFloat(toGB(appSize).toFixed(2)),
+        percentUsed: used / total,
+        percentApp: appSize / total
+      });
+
+    } catch (e) {
+      console.log('Error fetching storage:', e);
+    }
+  };
+
+  const otherUsedPercent = Math.max(0, storage.percentUsed - storage.percentApp);
 
   return (
     <View style={styles.container}>
@@ -40,26 +106,26 @@ export default function DownloadsScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
-        {/* Storage Indicator Card (Visual Only for now) */}
+        {/* Storage Indicator Card */}
         <View style={styles.storageCard}>
            <View style={styles.storageHeader}>
               <View>
                  <Text style={styles.storageLabel}>DEVICE STORAGE</Text>
                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4 }}>
-                    <Text style={styles.storageUsed}>{usedStorageGB}</Text>
+                    <Text style={styles.storageUsed}>{storage.usedGB}</Text>
                     <Text style={styles.storageUnit}>GB used</Text>
                  </View>
               </View>
-              <Text style={styles.storageTotal}>of {totalStorageGB}GB</Text>
+              <Text style={styles.storageTotal}>of {storage.totalGB}GB</Text>
            </View>
            <View style={styles.storageBarBg}>
-              <View style={[styles.storageBarFill, { width: '25%', backgroundColor: '#9727e7' }]} />
-              <View style={[styles.storageBarFill, { width: '15%', backgroundColor: 'rgba(129, 140, 248, 0.5)' }]} />
+              <View style={[styles.storageBarFill, { width: `${storage.percentApp * 100}%`, backgroundColor: '#9727e7' }]} />
+              <View style={[styles.storageBarFill, { width: `${otherUsedPercent * 100}%`, backgroundColor: 'rgba(129, 140, 248, 0.5)' }]} />
            </View>
            <View style={styles.legendRow}>
               <View style={styles.legendItem}>
                  <View style={[styles.legendDot, { backgroundColor: '#9727e7' }]} />
-                 <Text style={styles.legendText}>Showfim</Text>
+                 <Text style={styles.legendText}>Showfim ({storage.appUsedGB} GB)</Text>
               </View>
               <View style={styles.legendItem}>
                  <View style={[styles.legendDot, { backgroundColor: 'rgba(129, 140, 248, 0.5)' }]} />
@@ -172,11 +238,7 @@ export default function DownloadsScreen() {
                     </View>
 
                     <View style={styles.itemActions}>
-                        <TouchableOpacity style={styles.playBtn} onPress={() => {
-                            // Logic to play local file
-                            // Could navigate to player screen or open modal
-                            Alert.alert('Play', 'Open player with local URI: ' + item.uri);
-                        }}>
+                        <TouchableOpacity style={styles.playBtn} onPress={() => onPlay(item)}>
                             <MaterialIcons name="play-arrow" size={24} color="white" />
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.deleteBtn} onPress={() => Alert.alert('Delete', `Delete ${item.title}?`, [{text: 'Cancel'}, {text: 'Delete', style: 'destructive', onPress: () => deleteDownload(item.id)}])}>
