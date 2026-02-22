@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { StreamData, ExternalStream, Caption } from '../utils/streamUtils';
 
-const API_BASE = 'https://02moviedownloader.xyz/api/download';
+const API_BASE = 'https://02moviedownloader.site/api/download';
 
 interface UseMovieStreamsResult {
     streams: StreamData | null;

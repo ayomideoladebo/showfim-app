@@ -9,7 +9,7 @@ This document details the streaming and download system implementation for movie
 
 ### Base URL
 ```
-https://02moviedownloader.xyz/api/download
+https://02moviedownloader.site/api/download
 ```
 
 ### Endpoints
@@ -20,8 +20,8 @@ https://02moviedownloader.xyz/api/download
 
 ### Example Requests
 ```
-Movie:    https://02moviedownloader.xyz/api/download/movie/1584215
-TV Show:  https://02moviedownloader.xyz/api/download/tv/12345/1/5
+Movie:    https://02moviedownloader.site/api/download/movie/1584215
+TV Show:  https://02moviedownloader.site/api/download/tv/12345/1/5
 ```
 
 ---
@@ -87,7 +87,7 @@ interface ExternalStream {
 **File:** `src/hooks/useMovieStreams.ts`
 
 ```typescript
-const API_BASE = "https://02moviedownloader.xyz/api/download";
+const API_BASE = "https://02moviedownloader.site/api/download";
 
 export function useMovieStreams(movieId: string | number, type: "movie" | "tv" = "movie") {
   // Fetches from: ${API_BASE}/${type}/${movieId}
@@ -304,7 +304,7 @@ const PROGRESS_STORAGE_KEY = "showfim_playback_progress";
 
 | Feature | Implementation |
 |---------|----------------|
-| **API Base** | `https://02moviedownloader.xyz/api/download` |
+| **API Base** | `https://02moviedownloader.site/api/download` |
 | **Excluded Source** | `DahmerMovies` |
 | **Prioritized Source** | `FzMovies` |
 | **Subtitle Proxy** | Supabase Edge Function |
