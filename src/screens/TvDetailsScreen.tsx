@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getTVDetails, getTVCredits, getTVSeasonDetails, getBackdropUrl, getProfileUrl, getStillUrl, getPosterUrl } from '../services/tmdb';
 import { TMDBTVDetails, TMDBCredits, TMDBSeasonDetails, TMDBEpisode, TMDBCastMember } from '../types/tmdb';
 import { useTVShowStreams } from '../hooks/useTVShowStreams';
-import { processExternalStreams } from '../utils/streamUtils';
+import { processDownloads } from '../utils/streamUtils';
 import ShowfimPlayer from '../components/player/ShowfimPlayer';
 import DownloadModal from '../components/DownloadModal';
 import StreamLoadingModal from '../components/StreamLoadingModal';
@@ -33,7 +33,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   const [loading, setLoading] = useState(true);
   const [seasonLoading, setSeasonLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'seasons' | 'extras'>('seasons');
-  
+
   // Streaming state
   const [showPlayer, setShowPlayer] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -47,14 +47,14 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   const [selectedBatchResolution, setSelectedBatchResolution] = useState<number | null>(null);
   const [isWaitingForStream, setIsWaitingForStream] = useState(false);
   const [playingEpisode, setPlayingEpisode] = useState<{ season: number; episode: number } | null>(null);
-  
+
   // Streaming data (only fetch when episode is selected for playback)
   const { streams, loading: streamsLoading, hasFetched } = useTVShowStreams(
-    tvId || 0, 
-    playingEpisode?.season || 1, 
+    tvId || 0,
+    playingEpisode?.season || 1,
     playingEpisode?.episode || 1
   );
-  const processedSources = streams ? processExternalStreams(streams.externalStreams) : [];
+  const processedSources = streams ? processDownloads(streams.downloads) : [];
   const subtitles = streams?.captions || [];
 
   // Watchlist
@@ -65,17 +65,17 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   useEffect(() => {
     const fetchTVData = async () => {
       if (!tvId) return;
-      
+
       try {
         setLoading(true);
         const [tvData, creditsData] = await Promise.all([
           getTVDetails(tvId),
           getTVCredits(tvId),
         ]);
-        
+
         setTvShow(tvData);
         setCredits(creditsData);
-        
+
         // Fetch first season by default
         if (tvData.seasons && tvData.seasons.length > 0) {
           const firstSeasonNumber = tvData.seasons.find(s => s.season_number > 0)?.season_number || 1;
@@ -97,7 +97,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   useEffect(() => {
     const fetchSeason = async () => {
       if (!tvId || loading) return;
-      
+
       try {
         setSeasonLoading(true);
         const season = await getTVSeasonDetails(tvId, selectedSeason);
@@ -132,7 +132,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   // Watch stream effect (must be before any early returns)
   useEffect(() => {
     if (isWaitingForStream && !streamsLoading && playingEpisode) {
-      if (streams?.externalStreams && streams.externalStreams.length > 0) {
+      if (streams?.downloads && streams.downloads.length > 0) {
         setIsWaitingForStream(false);
         setShowPlayer(true);
       } else if (hasFetched) {
@@ -176,7 +176,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   // Handle episode play
   const handlePlayEpisode = (episode: TMDBEpisode) => {
     // If playing same episode and data ready
-    if (playingEpisode?.season === selectedSeason && playingEpisode?.episode === episode.episode_number && streams?.externalStreams?.length > 0) {
+    if (playingEpisode?.season === selectedSeason && playingEpisode?.episode === episode.episode_number && streams?.downloads?.length > 0) {
       setShowPlayer(true);
       return;
     }
@@ -197,14 +197,14 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   // Handle download all episodes in season
   const handleDownloadAll = () => {
     if (!tvShow || episodes.length === 0) return;
-    
+
     Alert.alert(
       `Download Season ${selectedSeason}`,
       `This will scan all ${episodes.length} episodes for available resolutions. Continue?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Continue', 
+        {
+          text: 'Continue',
           onPress: () => {
             setShowDownloadAllModal(true);
             fetchAllEpisodeStreams();
@@ -217,40 +217,40 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   // Fetch streams for all episodes and analyze resolutions
   const fetchAllEpisodeStreams = async () => {
     if (!tvShow || episodes.length === 0) return;
-    
+
     setFetchingStreams(true);
     setEpisodeStreamsData([]);
     setAvailableResolutions([]);
     setSelectedBatchResolution(null);
     setBatchProgress({ current: 0, total: episodes.length, status: 'Scanning episodes...' });
-    
+
     const allStreamsData: Array<{ episodeNum: number; name: string; sources: any[] }> = [];
     const resolutionMap: Map<number, number> = new Map(); // resolution -> count
-    
+
     for (let i = 0; i < episodes.length; i++) {
       const episode = episodes[i];
       const episodeNum = episode.episode_number;
-      
+
       setBatchProgress({
         current: i + 1,
         total: episodes.length,
         status: `Scanning E${episodeNum}: ${episode.name || 'Episode ' + episodeNum}`
       });
-      
+
       try {
         const { sources, error } = await fetchEpisodeStreams(
           tvId || 0,
           selectedSeason,
           episodeNum
         );
-        
+
         if (!error && sources.length > 0) {
           allStreamsData.push({
             episodeNum,
             name: episode.name || `Episode ${episodeNum}`,
             sources
           });
-          
+
           // Track available resolutions
           sources.forEach((source: any) => {
             if (source.resolution) {
@@ -272,21 +272,21 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
           sources: []
         });
       }
-      
+
       // Small delay to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 200));
     }
-    
+
     setEpisodeStreamsData(allStreamsData);
-    
+
     // Convert resolution map to sorted array
     const resolutions = Array.from(resolutionMap.entries())
       .map(([resolution, count]) => ({ resolution, count }))
       .sort((a, b) => b.resolution - a.resolution); // Sort descending (highest first)
-    
+
     setAvailableResolutions(resolutions);
     setFetchingStreams(false);
-    
+
     // Auto-select the resolution with most episodes
     if (resolutions.length > 0) {
       const maxCount = Math.max(...resolutions.map(r => r.count));
@@ -300,15 +300,15 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   // Start batch download of all episodes with selected resolution
   const startBatchDownload = async () => {
     if (!tvShow || episodeStreamsData.length === 0 || !selectedBatchResolution) return;
-    
+
     setBatchDownloading(true);
-    
+
     // Find episodes missing the selected resolution
     const missingEpisodes: Array<{ episodeNum: number; name: string; alternatives: number[] }> = [];
-    
+
     episodeStreamsData.forEach(ep => {
       if (ep.sources.length === 0) return; // Skip episodes with no sources
-      
+
       const hasSelectedRes = ep.sources.some((s: any) => s.resolution === selectedBatchResolution);
       if (!hasSelectedRes) {
         const alternatives = ep.sources.map((s: any) => s.resolution).filter(Boolean);
@@ -319,35 +319,35 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
         });
       }
     });
-    
+
     // If there are episodes missing the selected resolution, ask user what to do
     if (missingEpisodes.length > 0) {
-      const episodesList = missingEpisodes.map(e => 
+      const episodesList = missingEpisodes.map(e =>
         `E${e.episodeNum}: ${e.alternatives.length > 0 ? e.alternatives.map(r => `${r}p`).join(', ') : 'No sources'}`
       ).join('\n');
-      
+
       Alert.alert(
         'Resolution Mismatch',
         `${missingEpisodes.length} episode(s) don't have ${selectedBatchResolution}p:\n\n${episodesList}\n\nWhat would you like to do?`,
         [
-          { 
-            text: 'Cancel', 
+          {
+            text: 'Cancel',
             style: 'cancel',
             onPress: () => setBatchDownloading(false)
           },
-          { 
-            text: 'Skip These', 
+          {
+            text: 'Skip These',
             onPress: () => executeDownload(false)
           },
-          { 
-            text: 'Use Best Available', 
+          {
+            text: 'Use Best Available',
             onPress: () => executeDownload(true)
           }
         ]
       );
       return;
     }
-    
+
     // No missing episodes, proceed directly
     executeDownload(false);
   };
@@ -355,38 +355,38 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   // Execute the batch download with current settings
   const executeDownload = async (useBestAvailable: boolean) => {
     if (!tvShow || !selectedBatchResolution) return;
-    
+
     let successCount = 0;
     let failCount = 0;
     const totalEps = episodeStreamsData.filter(ep => ep.sources.length > 0).length;
-    
+
     for (let i = 0; i < episodeStreamsData.length; i++) {
       const ep = episodeStreamsData[i];
-      
+
       if (ep.sources.length === 0) {
         failCount++;
         continue;
       }
-      
+
       setBatchProgress({
         current: successCount + failCount + 1,
         total: totalEps,
         status: `Queuing E${ep.episodeNum}: ${ep.name}`
       });
-      
+
       // Find source with selected resolution, or best available
       let source = ep.sources.find((s: any) => s.resolution === selectedBatchResolution);
-      
+
       if (!source && useBestAvailable) {
         // Use highest available resolution
         source = ep.sources.sort((a: any, b: any) => (b.resolution || 0) - (a.resolution || 0))[0];
       }
-      
+
       if (!source) {
         failCount++;
         continue;
       }
-      
+
       // Queue the download
       downloadManager.startDownload({
         id: `${tvId}_${selectedSeason}_${ep.episodeNum}_${source.resolution}`,
@@ -397,24 +397,24 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
         season: selectedSeason,
         episode: ep.episodeNum,
         quality: `${source.resolution}p`,
-        remoteUrl: source.url,
+        remoteUrl: source.downloadUrl || source.url,
         size: source.size || 'Unknown',
       });
-      
+
       successCount++;
-      
+
       // Small delay between queuing
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    
+
     setBatchDownloading(false);
     setShowDownloadAllModal(false);
-    
+
     // Reset state
     setEpisodeStreamsData([]);
     setAvailableResolutions([]);
     setSelectedBatchResolution(null);
-    
+
     // Show completion message
     Alert.alert(
       'Download Complete',
@@ -429,49 +429,49 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
 
       {/* Loading Modal */}
       <StreamLoadingModal visible={isWaitingForStream} message="Finding episode streams..." />
-      
+
       {/* Fixed Header */}
       {!showPlayer && (
         <View style={styles.header}>
-        <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
-          <TouchableOpacity style={styles.iconButton} onPress={onBack}>
-            <MaterialIcons name="arrow-back-ios-new" size={20} color="white" />
-          </TouchableOpacity>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.iconButton}>
-              <MaterialIcons name="cast" size={20} color="white" />
+          <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
+            <TouchableOpacity style={styles.iconButton} onPress={onBack}>
+              <MaterialIcons name="arrow-back-ios-new" size={20} color="white" />
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.iconButton, inWatchlist && { borderColor: '#9727e7' }]}
-              onPress={() => {
-                if (!tvShow) return;
-                if (inWatchlist) {
-                  removeFromWatchlist(tvShow.id, 'tv');
-                } else {
-                  addToWatchlist({
-                    id: tvShow.id,
-                    type: 'tv',
-                    title: tvShow.name,
-                    posterPath: tvShow.poster_path || '',
-                    backdropPath: tvShow.backdrop_path || '',
-                    voteAverage: tvShow.vote_average,
-                  });
-                }
-              }}
-            >
-              <MaterialIcons 
-                name={inWatchlist ? "bookmark" : "bookmark-outline"} 
-                size={20} 
-                color={inWatchlist ? "#9727e7" : "white"} 
-              />
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </View>
+            <View style={styles.headerActions}>
+              <TouchableOpacity style={styles.iconButton}>
+                <MaterialIcons name="cast" size={20} color="white" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.iconButton, inWatchlist && { borderColor: '#9727e7' }]}
+                onPress={() => {
+                  if (!tvShow) return;
+                  if (inWatchlist) {
+                    removeFromWatchlist(tvShow.id, 'tv');
+                  } else {
+                    addToWatchlist({
+                      id: tvShow.id,
+                      type: 'tv',
+                      title: tvShow.name,
+                      posterPath: tvShow.poster_path || '',
+                      backdropPath: tvShow.backdrop_path || '',
+                      voteAverage: tvShow.vote_average,
+                    });
+                  }
+                }}
+              >
+                <MaterialIcons
+                  name={inWatchlist ? "bookmark" : "bookmark-outline"}
+                  size={20}
+                  color={inWatchlist ? "#9727e7" : "white"}
+                />
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </View>
       )}
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         {/* HERO SECTION */}
         <View style={styles.heroContainer}>
           <ImageBackground
@@ -484,7 +484,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
               locations={[0, 0.5, 1]}
               style={StyleSheet.absoluteFillObject}
             />
-            
+
             <View style={styles.heroContent}>
               {/* Genre Tags */}
               <View style={styles.tagsRow}>
@@ -494,10 +494,10 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
                   </View>
                 ))}
               </View>
-              
+
               {/* Title */}
               <Text style={styles.title}>{tvShow.name}</Text>
-              
+
               {/* Meta Info */}
               <View style={styles.metaRow}>
                 <View style={styles.ratingBox}>
@@ -529,7 +529,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
 
         {/* CONTENT SECTION */}
         <View style={styles.contentContainer}>
-          
+
           {/* Tabs: Seasons + Extras */}
           <View style={styles.seasonTabsContainer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.seasonTabs}>
@@ -556,7 +556,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
                   )}
                 </TouchableOpacity>
               ))}
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.seasonTab, activeTab === 'extras' && styles.seasonTabActive]}
                 onPress={() => setActiveTab('extras')}
               >
@@ -601,7 +601,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
                           </View>
                         </View>
                       </View>
-                      
+
                       {/* Episode Info */}
                       <View style={styles.episodeInfo}>
                         <View style={styles.episodeHeader}>
@@ -610,13 +610,13 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
                           </Text>
                         </View>
                         <View style={styles.episodeActions}>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             style={styles.episodePlayButton}
                             onPress={() => handlePlayEpisode(episode)}
                           >
                             <MaterialIcons name="play-arrow" size={24} color="white" />
                           </TouchableOpacity>
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             style={styles.episodeDownloadButton}
                             onPress={() => handleDownloadEpisode(episode)}
                           >
@@ -648,8 +648,8 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
                 <Text style={styles.extrasSectionTitle}>Cast</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.castList}>
                   {cast.map((actor: TMDBCastMember) => (
-                    <TouchableOpacity 
-                      key={actor.id} 
+                    <TouchableOpacity
+                      key={actor.id}
                       style={styles.castItem}
                       onPress={() => onActorPress?.(actor.id)}
                     >
@@ -774,46 +774,46 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
         <View style={[StyleSheet.absoluteFillObject, styles.downloadAllOverlay]}>
           <View style={styles.downloadAllContent}>
             <Text style={styles.downloadAllTitle}>Download Season {selectedSeason}</Text>
-            
+
             {/* Phase 1: Scanning Episodes */}
             {fetchingStreams && (
               <>
                 <Text style={styles.downloadAllSubtitle}>
                   Scanning {batchProgress.current} of {batchProgress.total} episodes
                 </Text>
-                
+
                 <View style={styles.batchProgressContainer}>
                   <ActivityIndicator size="small" color="#9727e7" />
                   <Text style={styles.batchProgressText} numberOfLines={2}>
                     {batchProgress.status}
                   </Text>
                 </View>
-                
+
                 <View style={styles.batchProgressBar}>
-                  <View 
+                  <View
                     style={[
-                      styles.batchProgressFill, 
+                      styles.batchProgressFill,
                       { width: `${(batchProgress.current / batchProgress.total) * 100}%` }
-                    ]} 
+                    ]}
                   />
                 </View>
-                
+
                 <Text style={styles.downloadAllInfoText}>
                   Analyzing available resolutions...
                 </Text>
               </>
             )}
-            
+
             {/* Phase 2: Resolution Selection */}
             {!fetchingStreams && availableResolutions.length > 0 && !batchDownloading && (
               <>
                 <Text style={styles.downloadAllSubtitle}>
                   Select download quality
                 </Text>
-                
+
                 <View style={styles.resolutionList}>
                   {availableResolutions.map((res) => (
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       key={res.resolution}
                       style={[
                         styles.resolutionOption,
@@ -838,20 +838,20 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
                     </TouchableOpacity>
                   ))}
                 </View>
-                
+
                 {/* Warning if not all episodes have selected resolution */}
-                {selectedBatchResolution && 
+                {selectedBatchResolution &&
                   availableResolutions.find(r => r.resolution === selectedBatchResolution)?.count !== episodeStreamsData.filter(e => e.sources.length > 0).length && (
-                  <View style={styles.downloadAllWarning}>
-                    <MaterialIcons name="warning" size={18} color="#f59e0b" />
-                    <Text style={styles.downloadAllWarningText}>
-                      Some episodes don't have {selectedBatchResolution}p
-                    </Text>
-                  </View>
-                )}
-                
+                    <View style={styles.downloadAllWarning}>
+                      <MaterialIcons name="warning" size={18} color="#f59e0b" />
+                      <Text style={styles.downloadAllWarningText}>
+                        Some episodes don't have {selectedBatchResolution}p
+                      </Text>
+                    </View>
+                  )}
+
                 <View style={styles.downloadAllButtons}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[
                       styles.downloadAllStartButton,
                       !selectedBatchResolution && { opacity: 0.5 }
@@ -862,8 +862,8 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
                     <MaterialIcons name="download" size={20} color="white" />
                     <Text style={styles.downloadAllStartText}>Start Download</Text>
                   </TouchableOpacity>
-                  
-                  <TouchableOpacity 
+
+                  <TouchableOpacity
                     style={styles.downloadAllCancelButton}
                     onPress={() => {
                       setShowDownloadAllModal(false);
@@ -877,47 +877,47 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
                 </View>
               </>
             )}
-            
+
             {/* Phase 3: Downloading */}
             {batchDownloading && (
               <>
                 <Text style={styles.downloadAllSubtitle}>
                   Queuing {batchProgress.current} of {batchProgress.total} episodes
                 </Text>
-                
+
                 <View style={styles.batchProgressContainer}>
                   <ActivityIndicator size="small" color="#9727e7" />
                   <Text style={styles.batchProgressText} numberOfLines={2}>
                     {batchProgress.status}
                   </Text>
                 </View>
-                
+
                 <View style={styles.batchProgressBar}>
-                  <View 
+                  <View
                     style={[
-                      styles.batchProgressFill, 
+                      styles.batchProgressFill,
                       { width: `${(batchProgress.current / Math.max(batchProgress.total, 1)) * 100}%` }
-                    ]} 
+                    ]}
                   />
                 </View>
               </>
             )}
-            
+
             {/* No sources found */}
             {!fetchingStreams && availableResolutions.length === 0 && !batchDownloading && (
               <>
                 <Text style={styles.downloadAllSubtitle}>
                   No download sources found
                 </Text>
-                
+
                 <View style={styles.downloadAllInfo}>
                   <MaterialIcons name="error-outline" size={20} color="#ef4444" />
                   <Text style={styles.downloadAllInfoText}>
                     Sorry, we couldn't find any download sources for this season.
                   </Text>
                 </View>
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   style={styles.downloadAllCancelButton}
                   onPress={() => setShowDownloadAllModal(false)}
                 >
@@ -1227,7 +1227,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontFamily: 'Manrope_400Regular',
   },
-  
+
   // Extras Tab Styles
   extrasContainer: {
     gap: 24,

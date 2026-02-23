@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { StreamData } from '../utils/streamUtils';
-
-const API_BASE = 'https://02moviedownloader.site/api/download';
+import { StreamData, Caption, MOVIEBOX_API_BASE, getProxiedSubtitleUrl } from '../utils/streamUtils';
 
 interface UseTVShowStreamsResult {
     streams: StreamData | null;
@@ -34,7 +32,7 @@ export function useTVShowStreams(
         setError(null);
 
         try {
-            const response = await fetch(`${API_BASE}/tv/${showId}/${season}/${episode}`);
+            const response = await fetch(`${MOVIEBOX_API_BASE}/api/download/tv/${showId}/${season}/${episode}`);
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -48,9 +46,16 @@ export function useTVShowStreams(
                 data.data ||
                 data;
 
+            // Process captions to use proxy URLs
+            const rawCaptions = downloadData.captions || [];
+            const proxiedCaptions: Caption[] = rawCaptions.map((cap: any) => ({
+                ...cap,
+                url: cap.url ? getProxiedSubtitleUrl(cap.url) : cap.url
+            }));
+
             const parsedStreams: StreamData = {
                 downloads: downloadData.downloads || [],
-                captions: downloadData.captions || [],
+                captions: proxiedCaptions,
                 externalStreams: data.externalStreams || [], // At ROOT level
                 hasResource: downloadData.hasResource ?? true,
             };

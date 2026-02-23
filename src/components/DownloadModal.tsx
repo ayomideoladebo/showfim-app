@@ -1,11 +1,11 @@
 
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  Modal, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
   ScrollView,
   Linking,
   ActivityIndicator,
@@ -62,7 +62,7 @@ export default function DownloadModal({
     let type: 'video' | 'subtitle' = 'video';
 
     if (activeTab === 'video' && selectedSource) {
-      url = selectedSource.url;
+      url = selectedSource.downloadUrl || selectedSource.url;
       quality = selectedSource.resolution + 'p';
       size = selectedSource.size;
       type = 'video';
@@ -85,7 +85,7 @@ export default function DownloadModal({
         remoteUrl: url,
         size,
       });
-      
+
       Alert.alert('Download Started', `Downloading ${title} (${quality}). check "Downloads" tab.`);
       onClose();
     }
@@ -128,10 +128,10 @@ export default function DownloadModal({
               </Text>
             </View>
           </View>
-          <MaterialIcons 
-            name={source.resolution >= 720 ? "hd" : "sd"} 
-            size={24} 
-            color={selectedSource?.id === source.id ? "#9727e7" : "#4b5563"} 
+          <MaterialIcons
+            name={source.resolution >= 720 ? "hd" : "sd"}
+            size={24}
+            color={selectedSource?.id === source.id ? "#9727e7" : "#4b5563"}
           />
         </TouchableOpacity>
       ))}
@@ -163,10 +163,10 @@ export default function DownloadModal({
                 <Text style={styles.optionSubtitle}>{subtitle.lan.toUpperCase()}</Text>
               </View>
             </View>
-            <MaterialIcons 
-              name="subtitles" 
-              size={24} 
-              color={selectedSubtitle?.lan === subtitle.lan ? "#9727e7" : "#4b5563"} 
+            <MaterialIcons
+              name="subtitles"
+              size={24}
+              color={selectedSubtitle?.lan === subtitle.lan ? "#9727e7" : "#4b5563"}
             />
           </TouchableOpacity>
         ))
@@ -183,10 +183,10 @@ export default function DownloadModal({
     >
       <View style={styles.overlay}>
         <TouchableOpacity style={styles.closeArea} onPress={onClose} />
-        
+
         <View style={styles.modalContainer}>
           <View style={styles.dragHandle} />
-          
+
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Select Quality</Text>
             <TouchableOpacity onPress={onClose}>
@@ -196,13 +196,13 @@ export default function DownloadModal({
 
           {/* Tabs */}
           <View style={styles.tabsContainer}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.tab, activeTab === 'video' && styles.activeTab]}
               onPress={() => setActiveTab('video')}
             >
               <Text style={[styles.tabText, activeTab === 'video' && styles.activeTabText]}>Video</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.tab, activeTab === 'subtitle' && styles.activeTab]}
               onPress={() => setActiveTab('subtitle')}
             >
@@ -238,8 +238,8 @@ export default function DownloadModal({
             <TouchableOpacity
               style={[
                 styles.downloadButton,
-                (!selectedSource && activeTab === 'video') || (!selectedSubtitle && activeTab === 'subtitle') 
-                  ? styles.downloadButtonDisabled 
+                (!selectedSource && activeTab === 'video') || (!selectedSubtitle && activeTab === 'subtitle')
+                  ? styles.downloadButtonDisabled
                   : {}
               ]}
               disabled={(!selectedSource && activeTab === 'video') || (!selectedSubtitle && activeTab === 'subtitle')}

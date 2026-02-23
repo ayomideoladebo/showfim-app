@@ -9,19 +9,22 @@ This document details the streaming and download system implementation for movie
 
 ### Base URL
 ```
-https://02moviedownloader.site/api/download
+https://showfim-api-cnetghdfc6e5f4df.southindia-01.azurewebsites.net
 ```
 
 ### Endpoints
 | Content Type | Endpoint Pattern |
 |--------------|------------------|
-| Movies | `/movie/{tmdb_id}` |
-| TV Shows | `/tv/{tmdb_id}/{season}/{episode}` |
+| Movies | `/api/download/movie/{tmdb_id}` |
+| TV Shows | `/api/download/tv/{tmdb_id}/{season}/{episode}` |
+| Proxy Stream | `/api/proxy/stream?url={url}` |
+| Proxy Download | `/api/proxy/download?url={url}&filename={name}` |
+| Proxy Subtitle | `/api/proxy/subtitle?url={url}` |
 
 ### Example Requests
 ```
-Movie:    https://02moviedownloader.site/api/download/movie/1584215
-TV Show:  https://02moviedownloader.site/api/download/tv/12345/1/5
+Movie:    https://showfim-api-cnetghdfc6e5f4df.southindia-01.azurewebsites.net/api/download/movie/1584215
+TV Show:  https://showfim-api-cnetghdfc6e5f4df.southindia-01.azurewebsites.net/api/download/tv/12345/1/5
 ```
 
 ---
@@ -87,10 +90,10 @@ interface ExternalStream {
 **File:** `src/hooks/useMovieStreams.ts`
 
 ```typescript
-const API_BASE = "https://02moviedownloader.site/api/download";
+import { MOVIEBOX_API_BASE } from "../utils/streamUtils";
 
-export function useMovieStreams(movieId: string | number, type: "movie" | "tv" = "movie") {
-  // Fetches from: ${API_BASE}/${type}/${movieId}
+export function useMovieStreams(movieId: string | number) {
+  // Fetches from: ${MOVIEBOX_API_BASE}/api/download/movie/${movieId}
   // Returns: { streams, loading, error, hasFetched, refetch }
 }
 ```
@@ -100,10 +103,11 @@ export function useMovieStreams(movieId: string | number, type: "movie" | "tv" =
 // Handle nested response structure
 const downloadData = data.data?.downloadData?.data || data.downloadData?.data || data.data || data;
 
+// Process components to use proxy
 const parsedStreams = {
   downloads: downloadData.downloads || [],
-  captions: downloadData.captions || [],
-  externalStreams: data.externalStreams || [],  // At ROOT level
+  captions: downloadData.captions.map(c => ({...c, url: getProxiedSubtitleUrl(c.url)})),
+  externalStreams: data.externalStreams || [],
   hasResource: downloadData.hasResource ?? true,
 };
 ```
@@ -304,9 +308,9 @@ const PROGRESS_STORAGE_KEY = "showfim_playback_progress";
 
 | Feature | Implementation |
 |---------|----------------|
-| **API Base** | `https://02moviedownloader.site/api/download` |
-| **Excluded Source** | `DahmerMovies` |
-| **Prioritized Source** | `FzMovies` |
-| **Subtitle Proxy** | Supabase Edge Function |
-| **Progress Storage** | localStorage |
+| **API Base** | `https://showfim-api-cnetghdfc6e5f4df...southindia-01.azurewebsites.net` |
+| **Excluded Source** | `DahmerMovies` (applied to external streams fallback) |
+| **Proxy System** | Native Azure Proxy Endpoints (`/api/proxy/*`) |
+| **Subtitle Proxy** | Integrated Azure Proxy |
+| **Download Flow** | Chunked Server Proxying with proper headers |
 | **Fallback Player** | vidfast.pro embed |

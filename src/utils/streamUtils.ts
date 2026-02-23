@@ -3,7 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface StreamSource {
     id: string;
-    url: string;
+    url: string; // The URL to use for streaming (proxy)
+    downloadUrl?: string; // The URL to use for downloading (proxy)
     quality: string;
     resolution: number;
     size: string;
@@ -36,11 +37,42 @@ export interface StreamData {
     hasResource: boolean;
 }
 
+// Base URL for the new Azure Proxy API
+export const MOVIEBOX_API_BASE = 'https://showfim-api-cnetghdfc6e5f4df.southindia-01.azurewebsites.net';
+
 // Excluded sources (poor quality/unreliable)
 const EXCLUDED_SOURCES = ['DahmerMovies'];
 
 // Prioritized sources (best quality/reliable)
 const PRIORITIZED_SOURCES = ['FzMovies'];
+
+/**
+ * Get proxied stream URL for in-browser/app streaming with Range support
+ */
+export function getProxiedStreamUrl(originalUrl: string): string {
+    if (!originalUrl) return '';
+    return `${MOVIEBOX_API_BASE}/api/proxy/stream?url=${encodeURIComponent(originalUrl)}`;
+}
+
+/**
+ * Get proxied download URL for downloading the file to device
+ */
+export function getProxiedDownloadUrl(originalUrl: string, filename?: string): string {
+    if (!originalUrl) return '';
+    let url = `${MOVIEBOX_API_BASE}/api/proxy/download?url=${encodeURIComponent(originalUrl)}`;
+    if (filename) {
+        url += `&filename=${encodeURIComponent(filename)}`;
+    }
+    return url;
+}
+
+/**
+ * Get proxied subtitle URL to bypass CORS
+ */
+export function getProxiedSubtitleUrl(originalUrl: string): string {
+    if (!originalUrl) return '';
+    return `${MOVIEBOX_API_BASE}/api/proxy/subtitle?url=${encodeURIComponent(originalUrl)}`;
+}
 
 /**
  * Filter out excluded sources like DahmerMovies
@@ -95,12 +127,42 @@ export function deduplicateByQuality(streams: ExternalStream[]): StreamSource[] 
 
 /**
  * Process external streams: filter, prioritize, and deduplicate
+ * Note: External streams are M3U8/HLS playlists which don't need proxying
+ * in the same way MP4s do, but they might need specific headers if played directly.
+ * For now, returning as is since they usually just work in standard players if referrer is ignored,
+ * but if they fail, further proxying might be needed.
  */
 export function processExternalStreams(streams: ExternalStream[]): StreamSource[] {
     const filtered = filterExternalStreams(streams);
     const prioritized = prioritizeStreams(filtered);
     const deduplicated = deduplicateByQuality(prioritized);
     return deduplicated;
+}
+
+/**
+ * Process direct MP4 downloads from the new API
+ * Generates properly proxied URLs for streaming and downloading
+ */
+export function processDownloads(downloads: any[], title?: string): StreamSource[] {
+    if (!downloads || !Array.isArray(downloads)) return [];
+
+    return downloads.map((download, index) => {
+        // Parse quality string (e.g., "1080", "720") to number
+        const resolution = parseInt(download.quality) || 720;
+
+        // Generate a filename if title is provided
+        const filename = title ? `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${resolution}p.mp4` : undefined;
+
+        return {
+            id: download.id || `download-${resolution}-${index}`,
+            url: getProxiedStreamUrl(download.url),
+            downloadUrl: getProxiedDownloadUrl(download.url, filename),
+            quality: download.quality + 'p',
+            resolution: resolution,
+            size: download.size || 'Unknown',
+            name: 'Direct MP4'
+        };
+    }).sort((a, b) => b.resolution - a.resolution); // Highest quality first
 }
 
 // Playback progress storage

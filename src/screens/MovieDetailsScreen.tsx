@@ -8,7 +8,7 @@ import { PortraitCard } from '../components/MovieCard';
 import { getMovieDetails, getMovieCredits, getSimilarMovies, getBackdropUrl, getProfileUrl, getPosterUrl, getMovieVideos, getMovieTrailer, getYouTubeUrl } from '../services/tmdb';
 import { TMDBMovieDetails, TMDBCredits, TMDBMovie, TMDBCastMember, TMDBVideo } from '../types/tmdb';
 import { useMovieStreams } from '../hooks/useMovieStreams';
-import { processExternalStreams } from '../utils/streamUtils';
+import { processDownloads } from '../utils/streamUtils';
 import ShowfimPlayer from '../components/player/ShowfimPlayer';
 import DownloadModal from '../components/DownloadModal';
 import StreamLoadingModal from '../components/StreamLoadingModal';
@@ -28,7 +28,7 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
   const [showDownloadSheet, setShowDownloadSheet] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
   const [selectedResolution, setSelectedResolution] = useState('1080p');
-  
+
   // TMDB Data State
   const [movie, setMovie] = useState<TMDBMovieDetails | null>(null);
   const [credits, setCredits] = useState<TMDBCredits | null>(null);
@@ -41,7 +41,7 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
   const { streams, loading: streamsLoading, hasFetched } = useMovieStreams(movieId || 0);
 
   // Process streams for player and download
-  const processedSources = streams ? processExternalStreams(streams.externalStreams) : [];
+  const processedSources = streams ? processDownloads(streams.downloads, movie?.title) : [];
   const subtitles = streams?.captions || [];
 
   // Watchlist
@@ -52,7 +52,7 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
   useEffect(() => {
     const fetchMovieData = async () => {
       if (!movieId) return;
-      
+
       try {
         setLoading(true);
         const [movieData, creditsData, similar, videos] = await Promise.all([
@@ -61,7 +61,7 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
           getSimilarMovies(movieId),
           getMovieVideos(movieId),
         ]);
-        
+
         setMovie(movieData);
         setCredits(creditsData);
         setSimilarMovies(similar.slice(0, 10));
@@ -101,7 +101,7 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
     }
 
     const youtubeUrl = getYouTubeUrl(trailer.key);
-    
+
     try {
       const canOpen = await Linking.canOpenURL(youtubeUrl);
       if (canOpen) {
@@ -133,8 +133,8 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
   useEffect(() => {
     if (isWaitingForStream && !streamsLoading && hasFetched) {
       setIsWaitingForStream(false);
-      
-      const sources = processExternalStreams(streams?.externalStreams || []);
+
+      const sources = processDownloads(streams?.downloads || [], movie?.title);
       if (sources.length > 0) {
         setShowPlayer(true);
       } else {
@@ -163,7 +163,7 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
 
   const handleWatchNow = () => {
     // If we have streams already, play
-    const sources = streams ? processExternalStreams(streams.externalStreams) : [];
+    const sources = streams ? processDownloads(streams.downloads, movie?.title) : [];
     if (sources.length > 0) {
       setShowPlayer(true);
       return;
@@ -181,7 +181,7 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Loading Modal */}
       <StreamLoadingModal visible={isWaitingForStream} message="Finding best streams..." />
 
@@ -211,33 +211,33 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
             source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAYekA-Knq8ivBigQ1ouR8VZm_a8W6S3fDhXH82dV54eowszN_iO21YDG2NyXlgDvmy-9jnQ8uZh--PjLk8ilsHDI_GNx9hvmqXi0R49q3B43FYXfJsY74Ngab6XXUXTSwy6myOiBmXi_fsVqUlpxEigF3uHijYW3DdxNzkq17zEZOxYAwOw1c9SYOxqjA7Qvn3bYFANNaKRADmZZk8zgo6Z5JOttFJ1J62TSrTTvtipvr5SaSZ3g4s5HbuwWp4mvwVxCuW4oP0B5Tg' }}
             style={styles.trailerImage}
           >
-             <View style={styles.trailerOverlay}>
-               {/* Close Button */}
-               <SafeAreaView edges={['top']} style={styles.trailerTopBar}>
-                 <TouchableOpacity style={styles.closeButton} onPress={() => setIsPlayingTrailer(false)}>
-                   <MaterialIcons name="close" size={24} color="white" />
-                 </TouchableOpacity>
-               </SafeAreaView>
+            <View style={styles.trailerOverlay}>
+              {/* Close Button */}
+              <SafeAreaView edges={['top']} style={styles.trailerTopBar}>
+                <TouchableOpacity style={styles.closeButton} onPress={() => setIsPlayingTrailer(false)}>
+                  <MaterialIcons name="close" size={24} color="white" />
+                </TouchableOpacity>
+              </SafeAreaView>
 
-               {/* Controls */}
-               <View style={styles.trailerControls}>
-                  <View style={styles.progressBar}>
-                    <View style={styles.progressFill}>
-                       <View style={styles.progressKnob} />
-                    </View>
+              {/* Controls */}
+              <View style={styles.trailerControls}>
+                <View style={styles.progressBar}>
+                  <View style={styles.progressFill}>
+                    <View style={styles.progressKnob} />
                   </View>
-                  <View style={styles.controlsRow}>
-                     <TouchableOpacity><MaterialIcons name="volume-up" size={24} color="rgba(255,255,255,0.9)" /></TouchableOpacity>
-                     <TouchableOpacity><MaterialIcons name="fullscreen" size={24} color="rgba(255,255,255,0.9)" /></TouchableOpacity>
-                  </View>
-               </View>
-             </View>
+                </View>
+                <View style={styles.controlsRow}>
+                  <TouchableOpacity><MaterialIcons name="volume-up" size={24} color="rgba(255,255,255,0.9)" /></TouchableOpacity>
+                  <TouchableOpacity><MaterialIcons name="fullscreen" size={24} color="rgba(255,255,255,0.9)" /></TouchableOpacity>
+                </View>
+              </View>
+            </View>
           </ImageBackground>
         </View>
       )}
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         {/* HERO SECTION (Hidden when playing) */}
         {!isPlayingTrailer && (
           <View style={styles.heroContainer}>
@@ -251,7 +251,7 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
                 locations={[0, 0.5, 1]}
                 style={StyleSheet.absoluteFillObject}
               />
-              
+
               <View style={styles.heroContent}>
                 <View style={styles.tagsRow}>
                   {genres.map((genre) => (
@@ -260,9 +260,9 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
                     </View>
                   ))}
                 </View>
-                
+
                 <Text style={styles.title}>{movie.title}</Text>
-                
+
                 <View style={styles.metaRow}>
                   <View style={styles.ratingBox}>
                     <MaterialIcons name="star" size={16} color="#eab308" />
@@ -281,17 +281,17 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
 
                 <View style={styles.actionButtonsCol}>
                   <View style={styles.actionRow}>
-                      <TouchableOpacity style={styles.watchNowBtn} onPress={handleWatchNow}>
-                        <MaterialIcons name="play-arrow" size={24} color="white" />
-                        <Text style={styles.watchNowText}>Watch Now</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.secondaryBtn} onPress={handleTrailerPress}>
-                        <MaterialIcons name="movie" size={24} color="white" />
-                        <Text style={styles.secondaryBtnText}>{trailer ? 'Trailer' : 'No Trailer'}</Text>
-                      </TouchableOpacity>
+                    <TouchableOpacity style={styles.watchNowBtn} onPress={handleWatchNow}>
+                      <MaterialIcons name="play-arrow" size={24} color="white" />
+                      <Text style={styles.watchNowText}>Watch Now</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.secondaryBtn} onPress={handleTrailerPress}>
+                      <MaterialIcons name="movie" size={24} color="white" />
+                      <Text style={styles.secondaryBtnText}>{trailer ? 'Trailer' : 'No Trailer'}</Text>
+                    </TouchableOpacity>
                   </View>
                   <View style={styles.actionRow}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={[styles.tertiaryBtn, inWatchlist && { borderColor: '#9727e7' }]}
                       onPress={() => {
                         if (!movie) return;
@@ -309,14 +309,14 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
                         }
                       }}
                     >
-                        <MaterialIcons name={inWatchlist ? "check" : "add"} size={24} color={inWatchlist ? "#9727e7" : "white"} />
-                        <Text style={[styles.tertiaryBtnText, inWatchlist && { color: '#9727e7' }]}>
-                          {inWatchlist ? 'In Watchlist' : 'Watch Later'}
-                        </Text>
+                      <MaterialIcons name={inWatchlist ? "check" : "add"} size={24} color={inWatchlist ? "#9727e7" : "white"} />
+                      <Text style={[styles.tertiaryBtnText, inWatchlist && { color: '#9727e7' }]}>
+                        {inWatchlist ? 'In Watchlist' : 'Watch Later'}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.tertiaryBtn} onPress={() => setShowDownloadSheet(true)}>
-                        <MaterialIcons name="download" size={24} color="white" />
-                        <Text style={styles.tertiaryBtnText}>Download</Text>
+                      <MaterialIcons name="download" size={24} color="white" />
+                      <Text style={styles.tertiaryBtnText}>Download</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -327,14 +327,14 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
         )}
 
         {/* DETAILS SECTION */}
-        <View 
+        <View
           style={[
-            styles.detailsContainer, 
+            styles.detailsContainer,
             isPlayingTrailer && styles.dimmedDetails // Apply dimming style
           ]}
           pointerEvents={isPlayingTrailer ? 'none' : 'auto'} // Disable interaction when trailer plays
         >
-          
+
           {/* Storyline */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Storyline</Text>
@@ -346,22 +346,22 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
           {/* Cast */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-               <Text style={styles.sectionTitle}>Cast & Crew</Text>
-               <TouchableOpacity><Text style={styles.seeAllText}>View All</Text></TouchableOpacity>
+              <Text style={styles.sectionTitle}>Cast & Crew</Text>
+              <TouchableOpacity><Text style={styles.seeAllText}>View All</Text></TouchableOpacity>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.castList}>
               {cast.map((actor: TMDBCastMember) => (
-                <TouchableOpacity 
-                  key={actor.id} 
+                <TouchableOpacity
+                  key={actor.id}
                   style={styles.castItem}
                   onPress={() => onActorPress?.(actor.id)}
                   activeOpacity={0.7}
                 >
-                   <View style={styles.castImageWrapper}>
-                      <Image source={{ uri: getProfileUrl(actor.profile_path) }} style={styles.castImage} />
-                   </View>
-                   <Text style={styles.castName} numberOfLines={1}>{actor.name}</Text>
-                   <Text style={styles.castRole} numberOfLines={1}>{actor.character}</Text>
+                  <View style={styles.castImageWrapper}>
+                    <Image source={{ uri: getProfileUrl(actor.profile_path) }} style={styles.castImage} />
+                  </View>
+                  <Text style={styles.castName} numberOfLines={1}>{actor.name}</Text>
+                  <Text style={styles.castRole} numberOfLines={1}>{actor.character}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -373,14 +373,14 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
             <View style={styles.grid}>
               {similarMovies.map((item: TMDBMovie) => (
                 <View key={item.id} style={styles.gridItemWrapper}>
-                   <PortraitCard
-                      title={item.title}
-                      image={getPosterUrl(item.poster_path)}
-                      rating={item.vote_average?.toFixed(1)}
-                      showRating={true}
-                      style={{ width: '100%', marginRight: 0 }}
-                      onPress={() => onMoviePress?.(item.id)}
-                   />
+                  <PortraitCard
+                    title={item.title}
+                    image={getPosterUrl(item.poster_path)}
+                    rating={item.vote_average?.toFixed(1)}
+                    showRating={true}
+                    style={{ width: '100%', marginRight: 0 }}
+                    onPress={() => onMoviePress?.(item.id)}
+                  />
                 </View>
               ))}
             </View>
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textTransform: 'uppercase',
   },
-  
+
   // Actions
   actionButtonsCol: {
     gap: 12,
@@ -641,7 +641,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontFamily: 'Manrope_400Regular',
   },
-  
+
   // Cast
   castList: {
     gap: 16,
@@ -685,11 +685,11 @@ const styles = StyleSheet.create({
   gridItemWrapper: {
     width: (width - 40 - 24) / 3, // 3 cols, padding 20*2=40, gap 12*2=24
   },
-  
+
   // Trailer Player
   trailerPlayer: {
     width: width,
-    aspectRatio: 16/9,
+    aspectRatio: 16 / 9,
     backgroundColor: 'black',
     zIndex: 100,
     elevation: 10,
@@ -724,7 +724,7 @@ const styles = StyleSheet.create({
   trailerControls: {
     padding: 16,
     paddingTop: 40,
-    backgroundColor: 'transparent', 
+    backgroundColor: 'transparent',
     // Gradient simulated by simple transparency or container styles if linear-gradient was used here
     // For now simple padding + semi-transparent prop if needed
   },
@@ -759,7 +759,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 4,
   },
-  
+
   // Dimmed State
   dimmedDetails: {
     opacity: 0.3,

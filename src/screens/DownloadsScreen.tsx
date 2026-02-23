@@ -12,12 +12,12 @@ interface DownloadsScreenProps {
 }
 
 export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
-  const { 
-    downloads, 
-    deleteDownload, 
-    pauseDownload, 
-    resumeDownload, 
-    clearAllDownloads 
+  const {
+    downloads,
+    deleteDownload,
+    pauseDownload,
+    resumeDownload,
+    clearAllDownloads
   } = useDownloads();
 
   const activeDownloads = downloads.filter(d => d.status === 'downloading' || d.status === 'paused');
@@ -40,11 +40,11 @@ export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
     try {
       // Use legacy import to avoid deprecation warnings
       const FileSystem = require('expo-file-system/legacy');
-      
+
       // Get Device Storage (using legacy API)
       let free = 0;
       let total = 128 * 1024 * 1024 * 1024; // Default 128GB
-      
+
       try {
         free = await FileSystem.getFreeDiskStorageAsync();
         total = await FileSystem.getTotalDiskCapacityAsync();
@@ -53,28 +53,28 @@ export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
         console.log('Storage API not available, using defaults');
         free = 96 * 1024 * 1024 * 1024; // Default 96GB free
       }
-      
+
       const used = total - free;
 
       // Get App Usage (Downloads folder)
       const downloadDir = FileSystem.documentDirectory + 'downloads/';
       let appSize = 0;
-      
+
       const dirInfo = await FileSystem.getInfoAsync(downloadDir);
       if (dirInfo.exists && dirInfo.isDirectory) {
         const files = await FileSystem.readDirectoryAsync(downloadDir);
         // Sum up file sizes
         for (const file of files) {
-           const fileInfo = await FileSystem.getInfoAsync(downloadDir + file, { size: true });
-           if (fileInfo.exists && !fileInfo.isDirectory) {
-             appSize += (fileInfo.size || 0);
-           }
+          const fileInfo = await FileSystem.getInfoAsync(downloadDir + file, { size: true });
+          if (fileInfo.exists && !fileInfo.isDirectory) {
+            appSize += (fileInfo.size || 0);
+          }
         }
       }
 
       // Convert to GB
       const toGB = (bytes: number) => (bytes / (1024 * 1024 * 1024));
-      
+
       setStorage({
         totalGB: Math.round(toGB(total)),
         usedGB: parseFloat(toGB(used).toFixed(1)),
@@ -93,161 +93,168 @@ export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Sticky Header */}
       <View style={styles.header}>
         <SafeAreaView edges={['top']} style={styles.headerContent}>
           <Text style={styles.headerTitle}>My Downloads</Text>
-          <TouchableOpacity style={styles.settingsBtn} onPress={clearAllDownloads} onLongPress={() => Alert.alert('Clear All', 'Delete all downloads?', [{text: 'Cancel'}, {text: 'Delete', onPress: clearAllDownloads}])}>
+          <TouchableOpacity style={styles.settingsBtn} onPress={clearAllDownloads} onLongPress={() => Alert.alert('Clear All', 'Delete all downloads?', [{ text: 'Cancel' }, { text: 'Delete', onPress: clearAllDownloads }])}>
             <MaterialIcons name="delete-sweep" size={24} color="#9ca3af" />
           </TouchableOpacity>
         </SafeAreaView>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         {/* Storage Indicator Card */}
         <View style={styles.storageCard}>
-           <View style={styles.storageHeader}>
-              <View>
-                 <Text style={styles.storageLabel}>DEVICE STORAGE</Text>
-                 <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4 }}>
-                    <Text style={styles.storageUsed}>{storage.usedGB}</Text>
-                    <Text style={styles.storageUnit}>GB used</Text>
-                 </View>
+          <View style={styles.storageHeader}>
+            <View>
+              <Text style={styles.storageLabel}>DEVICE STORAGE</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4 }}>
+                <Text style={styles.storageUsed}>{storage.usedGB}</Text>
+                <Text style={styles.storageUnit}>GB used</Text>
               </View>
-              <Text style={styles.storageTotal}>of {storage.totalGB}GB</Text>
-           </View>
-           <View style={styles.storageBarBg}>
-              <View style={[styles.storageBarFill, { width: `${storage.percentApp * 100}%`, backgroundColor: '#9727e7' }]} />
-              <View style={[styles.storageBarFill, { width: `${otherUsedPercent * 100}%`, backgroundColor: 'rgba(129, 140, 248, 0.5)' }]} />
-           </View>
-           <View style={styles.legendRow}>
-              <View style={styles.legendItem}>
-                 <View style={[styles.legendDot, { backgroundColor: '#9727e7' }]} />
-                 <Text style={styles.legendText}>Showfim ({storage.appUsedGB} GB)</Text>
-              </View>
-              <View style={styles.legendItem}>
-                 <View style={[styles.legendDot, { backgroundColor: 'rgba(129, 140, 248, 0.5)' }]} />
-                 <Text style={styles.legendText}>Other Apps</Text>
-              </View>
-           </View>
+            </View>
+            <Text style={styles.storageTotal}>of {storage.totalGB}GB</Text>
+          </View>
+          <View style={styles.storageBarBg}>
+            <View style={[styles.storageBarFill, { width: `${storage.percentApp * 100}%`, backgroundColor: '#9727e7' }]} />
+            <View style={[styles.storageBarFill, { width: `${otherUsedPercent * 100}%`, backgroundColor: 'rgba(129, 140, 248, 0.5)' }]} />
+          </View>
+          <View style={styles.legendRow}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: '#9727e7' }]} />
+              <Text style={styles.legendText}>Showfim ({storage.appUsedGB} GB)</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: 'rgba(129, 140, 248, 0.5)' }]} />
+              <Text style={styles.legendText}>Other Apps</Text>
+            </View>
+          </View>
         </View>
 
         {/* Active Downloads Section */}
         {activeDownloads.length > 0 && (
-            <>
-                <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Active Downloads</Text>
-                <View style={styles.badge}><Text style={styles.badgeText}>{activeDownloads.length} item{activeDownloads.length !== 1 ? 's' : ''}</Text></View>
-                </View>
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Active Downloads</Text>
+              <View style={styles.badge}><Text style={styles.badgeText}>{activeDownloads.length} item{activeDownloads.length !== 1 ? 's' : ''}</Text></View>
+            </View>
 
-                {activeDownloads.map(item => (
-                    <View key={item.id} style={styles.activeDownloadCard}>
-                        {/* Glow Effect */}
-                        <View style={styles.activeGlow} />
+            {activeDownloads.map(item => (
+              <View key={item.id} style={styles.activeDownloadCard}>
+                {/* Glow Effect */}
+                <View style={styles.activeGlow} />
 
-                        <View style={{ flexDirection: 'row', gap: 16 }}>
-                            <View style={styles.activePosterWrapper}>
-                                {item.posterUrl ? (
-                                    <Image source={{ uri: item.posterUrl }} style={styles.posterImage} />
-                                ) : (
-                                    <View style={[styles.posterImage, { backgroundColor: '#333' }]} />
-                                )}
-                                <View style={styles.posterOverlay} />
-                            </View>
-                            
-                            <View style={{ flex: 1, justifyContent: 'center' }}>
-                                <View style={styles.activeHeader}>
-                                    <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
-                                    <TouchableOpacity onPress={() => deleteDownload(item.id)}>
-                                        <MaterialIcons name="close" size={20} color="#9ca3af" />
-                                    </TouchableOpacity>
-                                </View>
+                <View style={{ flexDirection: 'row', gap: 16 }}>
+                  <View style={styles.activePosterWrapper}>
+                    {item.posterUrl ? (
+                      <Image source={{ uri: item.posterUrl }} style={styles.posterImage} />
+                    ) : (
+                      <View style={[styles.posterImage, { backgroundColor: '#333' }]} />
+                    )}
+                    <View style={styles.posterOverlay} />
+                  </View>
 
-                                <View style={styles.activeMeta}>
-                                    <Text style={styles.activeSpeed}>{item.status === 'paused' ? 'Paused' : 'Downloading...'}</Text>
-                                    <View style={styles.activeDot} />
-                                    <Text style={styles.activeTime}>{item.quality}</Text>
-                                </View>
-
-                                {/* Progress */}
-                                <View style={styles.progressBarWrapper}>
-                                    <View style={styles.progressLabels}>
-                                        <Text style={styles.progressText}>{Math.round(item.progress)}%</Text>
-                                        <Text style={styles.progressText}>{item.size}</Text>
-                                    </View>
-                                    <View style={styles.progressTrack}>
-                                        <View style={[styles.progressFill, { width: `${item.progress}%` }]} />
-                                    </View>
-                                </View>
-
-                                {/* Controls */}
-                                {item.status === 'downloading' ? (
-                                    <TouchableOpacity style={styles.pauseBtn} onPress={() => pauseDownload(item.id)}>
-                                        <MaterialIcons name="pause" size={18} color="white" />
-                                        <Text style={styles.pauseText}>Pause</Text>
-                                    </TouchableOpacity>
-                                ) : (
-                                    <TouchableOpacity style={styles.pauseBtn} onPress={() => resumeDownload(item.id)}>
-                                        <MaterialIcons name="play-arrow" size={18} color="white" />
-                                        <Text style={styles.pauseText}>Resume</Text>
-                                    </TouchableOpacity>
-                                )}
-                            </View>
-                        </View>
+                  <View style={{ flex: 1, justifyContent: 'center' }}>
+                    <View style={styles.activeHeader}>
+                      <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
+                      <TouchableOpacity onPress={() => deleteDownload(item.id)}>
+                        <MaterialIcons name="close" size={20} color="#9ca3af" />
+                      </TouchableOpacity>
                     </View>
-                ))}
-            </>
+
+                    <View style={styles.activeMeta}>
+                      <Text style={styles.activeSpeed}>{item.status === 'paused' ? 'Paused' : 'Downloading...'}</Text>
+                      <View style={styles.activeDot} />
+                      <Text style={styles.activeTime}>{item.quality}</Text>
+                    </View>
+
+                    {/* Progress */}
+                    <View style={styles.progressBarWrapper}>
+                      <View style={styles.progressLabels}>
+                        <Text style={styles.progressText}>
+                          {Math.round(Math.max(0, Math.min(100, item.progress)))}%
+                        </Text>
+                        <Text style={styles.progressText}>{item.size}</Text>
+                      </View>
+                      <View style={styles.progressTrack}>
+                        <View
+                          style={[
+                            styles.progressFill,
+                            { width: `${Math.max(0, Math.min(100, item.progress))}%` }
+                          ]}
+                        />
+                      </View>
+                    </View>
+
+                    {/* Controls */}
+                    {item.status === 'downloading' ? (
+                      <TouchableOpacity style={styles.pauseBtn} onPress={() => pauseDownload(item.id)}>
+                        <MaterialIcons name="pause" size={18} color="white" />
+                        <Text style={styles.pauseText}>Pause</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity style={styles.pauseBtn} onPress={() => resumeDownload(item.id)}>
+                        <MaterialIcons name="play-arrow" size={18} color="white" />
+                        <Text style={styles.pauseText}>Resume</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              </View>
+            ))}
+          </>
         )}
 
         {/* Downloaded Section */}
         <View style={styles.sectionHeader}>
-           <Text style={styles.sectionTitle}>Downloaded</Text>
-           {/* <TouchableOpacity><Text style={styles.manageText}>Manage</Text></TouchableOpacity> */}
+          <Text style={styles.sectionTitle}>Downloaded</Text>
+          {/* <TouchableOpacity><Text style={styles.manageText}>Manage</Text></TouchableOpacity> */}
         </View>
 
         {completedDownloads.length === 0 ? (
-            <View style={styles.emptyContainer}>
-                <MaterialIcons name="cloud-download" size={64} color="#374151" />
-                <Text style={styles.emptyText}>No downloads yet</Text>
-                <Text style={styles.emptySubtext}>Movies and episodes you download will appear here.</Text>
-            </View>
+          <View style={styles.emptyContainer}>
+            <MaterialIcons name="cloud-download" size={64} color="#374151" />
+            <Text style={styles.emptyText}>No downloads yet</Text>
+            <Text style={styles.emptySubtext}>Movies and episodes you download will appear here.</Text>
+          </View>
         ) : (
-            <View style={styles.downloadList}>
+          <View style={styles.downloadList}>
             {completedDownloads.map(item => (
-                <View key={item.id} style={styles.downloadItem}>
-                    <View style={styles.downloadPosterWrapper}>
-                        {item.posterUrl ? (
-                            <Image source={{ uri: item.posterUrl }} style={styles.posterImage} />
-                        ) : (
-                             <View style={[styles.posterImage, { backgroundColor: '#333' }]} />
-                        )}
-                        <View style={styles.playOverlay}>
-                            <MaterialIcons name="play-circle-outline" size={28} color="white" />
-                        </View>
-                    </View>
-                    
-                    <View style={styles.itemContent}>
-                        <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
-                        <View style={styles.itemMeta}>
-                            <Text style={styles.metaText}>{item.quality}</Text>
-                            <View style={styles.metaDot} />
-                            <Text style={styles.metaText}>{item.size}</Text>
-                        </View>
-                    </View>
-
-                    <View style={styles.itemActions}>
-                        <TouchableOpacity style={styles.playBtn} onPress={() => onPlay(item)}>
-                            <MaterialIcons name="play-arrow" size={24} color="white" />
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.deleteBtn} onPress={() => Alert.alert('Delete', `Delete ${item.title}?`, [{text: 'Cancel'}, {text: 'Delete', style: 'destructive', onPress: () => deleteDownload(item.id)}])}>
-                            <MaterialIcons name="delete-outline" size={20} color="#9ca3af" />
-                        </TouchableOpacity>
-                    </View>
+              <View key={item.id} style={styles.downloadItem}>
+                <View style={styles.downloadPosterWrapper}>
+                  {item.posterUrl ? (
+                    <Image source={{ uri: item.posterUrl }} style={styles.posterImage} />
+                  ) : (
+                    <View style={[styles.posterImage, { backgroundColor: '#333' }]} />
+                  )}
+                  <View style={styles.playOverlay}>
+                    <MaterialIcons name="play-circle-outline" size={28} color="white" />
+                  </View>
                 </View>
+
+                <View style={styles.itemContent}>
+                  <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
+                  <View style={styles.itemMeta}>
+                    <Text style={styles.metaText}>{item.quality}</Text>
+                    <View style={styles.metaDot} />
+                    <Text style={styles.metaText}>{item.size}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.itemActions}>
+                  <TouchableOpacity style={styles.playBtn} onPress={() => onPlay(item)}>
+                    <MaterialIcons name="play-arrow" size={24} color="white" />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.deleteBtn} onPress={() => Alert.alert('Delete', `Delete ${item.title}?`, [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: () => deleteDownload(item.id) }])}>
+                    <MaterialIcons name="delete-outline" size={20} color="#9ca3af" />
+                  </TouchableOpacity>
+                </View>
+              </View>
             ))}
-            </View>
+          </View>
         )}
 
         {/* Padding for Bottom Nav */}
@@ -291,7 +298,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
   },
-  
+
   // Storage Card
   storageCard: {
     backgroundColor: '#2a1f33',
@@ -391,7 +398,7 @@ const styles = StyleSheet.create({
   },
   activePosterWrapper: {
     width: 70,
-    aspectRatio: 2/3,
+    aspectRatio: 2 / 3,
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#1a1121',
@@ -506,7 +513,7 @@ const styles = StyleSheet.create({
   },
   downloadPosterWrapper: {
     width: 96,
-    aspectRatio: 16/9,
+    aspectRatio: 16 / 9,
     borderRadius: 8,
     overflow: 'hidden',
     position: 'relative',

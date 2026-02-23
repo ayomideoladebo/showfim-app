@@ -131,10 +131,10 @@ class DownloadManager {
             localUri,
             {},
             (progress) => {
-                const percent = progress.totalBytesExpectedToWrite
-                    ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
-                    : 0;
-                this.updateProgress(item.id, percent);
+                const total = progress.totalBytesExpectedToWrite;
+                const written = progress.totalBytesWritten;
+                const percent = total > 0 ? (written / total) : 0;
+                this.updateProgress(item.id, Math.max(0, percent));
             }
         );
 
@@ -191,10 +191,10 @@ class DownloadManager {
                         savedData.fileUri,
                         savedData.options || {},
                         (progress: any) => {
-                            const percent = progress.totalBytesExpectedToWrite
-                                ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
-                                : 0;
-                            this.updateProgress(id, percent);
+                            const total = progress.totalBytesExpectedToWrite;
+                            const written = progress.totalBytesWritten;
+                            const percent = total > 0 ? (written / total) : 0;
+                            this.updateProgress(id, Math.max(0, percent));
                         },
                         savedData.resumeData
                     );
@@ -211,10 +211,10 @@ class DownloadManager {
                 item.uri,
                 {},
                 (progress) => {
-                    const percent = progress.totalBytesExpectedToWrite
-                        ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
-                        : 0;
-                    this.updateProgress(id, percent);
+                    const total = progress.totalBytesExpectedToWrite;
+                    const written = progress.totalBytesWritten;
+                    const percent = total > 0 ? (written / total) : 0;
+                    this.updateProgress(id, Math.max(0, percent));
                 }
             );
         }

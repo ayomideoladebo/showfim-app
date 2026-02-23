@@ -1,25 +1,28 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
   ActivityIndicator,
   Dimensions,
   Modal,
   FlatList,
   StatusBar,
-  Platform
+  Platform,
+  PanResponder,
+  Animated,
+  Pressable
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus, VideoFullscreenUpdate } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import Slider from '@react-native-community/slider';
-import { 
-  StreamSource, 
-  Caption, 
-  formatTime, 
+import {
+  StreamSource,
+  Caption,
+  formatTime,
   getQualityLabel,
   getPlaybackProgress,
   savePlaybackProgress,
@@ -27,6 +30,12 @@ import {
 import { addToWatchHistoryAsync } from '../../hooks/useWatchHistory';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+interface SubtitleCue {
+  start: number; // in seconds
+  end: number;
+  text: string;
+}
 
 interface ShowfimPlayerProps {
   sources: StreamSource[];
@@ -66,21 +75,144 @@ export default function ShowfimPlayer({
   const [showControls, setShowControls] = useState(true);
   const [showQualityModal, setShowQualityModal] = useState(false);
   const [showSubtitleModal, setShowSubtitleModal] = useState(false);
-  const [selectedQuality, setSelectedQuality] = useState(0);
+  const [selectedQuality, setSelectedQuality] = useState(() => {
+    // Default to 480p if available, otherwise 720p or middle index
+    const index480 = sources.findIndex(s => s.resolution === 480);
+    if (index480 !== -1) return index480;
+    const index720 = sources.findIndex(s => s.resolution === 720);
+    if (index720 !== -1) return index720;
+    return Math.floor(sources.length / 2);
+  });
   const [selectedSubtitle, setSelectedSubtitle] = useState<Caption | null>(null);
+  const [parsedSubtitles, setParsedSubtitles] = useState<SubtitleCue[]>([]);
+  const [activeCue, setActiveCue] = useState<SubtitleCue | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // Seamless quality switching state (dual-buffer approach)
+  const [playableDuration, setPlayableDuration] = useState(0);
+
+  // Seamless quality switching state (dual-video approach)
+  const [activeVideo, setActiveVideo] = useState<'A' | 'B'>('A');
+  const [sourceA, setSourceA] = useState<StreamSource | null>(sources[selectedQuality]);
+  const [sourceB, setSourceB] = useState<StreamSource | null>(null);
   const [pendingQualityIndex, setPendingQualityIndex] = useState<number | null>(null);
-  const [preloadReady, setPreloadReady] = useState(false);
-  
+  const [isSwapping, setIsSwapping] = useState(false);
+
+  const videoA = useRef<Video>(null);
+  const videoB = useRef<Video>(null);
+
+  const activeVideoRef = activeVideo === 'A' ? videoA : videoB;
+  const inactiveVideoRef = activeVideo === 'A' ? videoB : videoA;
+
   // Next episode auto-play state
   const [showNextEpisodeOverlay, setShowNextEpisodeOverlay] = useState(false);
   const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(10);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Gesture State
+  const [volume, setVolume] = useState(1.0);
+  const [brightness, setBrightness] = useState(1.0); // 1.0 is normal, lower is darker (simulated)
+  const [gestureType, setGestureType] = useState<'volume' | 'brightness' | 'none'>('none');
+  const [gestureValue, setGestureValue] = useState(0);
+  const [showGestureOverlay, setShowGestureOverlay] = useState(false);
+  const [skipType, setSkipType] = useState<'forward' | 'backward' | null>(null);
+  const [showSkipOverlay, setShowSkipOverlay] = useState(false);
+
+  const gestureTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const skipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
+
+  const showGestureFeedback = (type: 'volume' | 'brightness', value: number) => {
+    setGestureType(type);
+    setGestureValue(value);
+    setShowGestureOverlay(true);
+
+    if (gestureTimeoutRef.current) clearTimeout(gestureTimeoutRef.current);
+    gestureTimeoutRef.current = setTimeout(() => setShowGestureOverlay(false), 1500);
+  };
+
+  const showSkipFeedback = (type: 'forward' | 'backward') => {
+    setSkipType(type);
+    setShowSkipOverlay(true);
+
+    if (skipTimeoutRef.current) clearTimeout(skipTimeoutRef.current);
+    skipTimeoutRef.current = setTimeout(() => setShowSkipOverlay(false), 800);
+  };
+
+  // PanResponder for gestures
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only take control if it's a clear vertical swipe or a double-tap candidate
+        return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 20;
+      },
+      onPanResponderGrant: (evt) => {
+        // Handle double tap
+        const now = Date.now();
+        const { locationX, locationY } = evt.nativeEvent;
+
+        if (lastTapRef.current && (now - lastTapRef.current.time) < 300) {
+          const dx = Math.abs(locationX - lastTapRef.current.x);
+          const dy = Math.abs(locationY - lastTapRef.current.y);
+          if (dx < 60 && dy < 60) {
+            if (locationX < SCREEN_WIDTH / 3) {
+              seekBackward();
+              showSkipFeedback('backward');
+              lastTapRef.current = null;
+              return;
+            } else if (locationX > (SCREEN_WIDTH * 2) / 3) {
+              seekForward();
+              showSkipFeedback('forward');
+              lastTapRef.current = null;
+              return;
+            }
+          }
+        }
+        lastTapRef.current = { time: now, x: locationX, y: locationY };
+
+        // If controls are hidden, show them on any touch
+        if (!showControls) {
+          resetControlsTimeout();
+        }
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const { locationX } = evt.nativeEvent;
+        const isLeft = locationX < SCREEN_WIDTH / 2;
+
+        // Vertical swipe detection
+        if (Math.abs(gestureState.dy) > Math.abs(gestureState.dx)) {
+          // Hide controls during swipe for better visibility of feedback
+          if (showControls) setShowControls(false);
+
+          const delta = -gestureState.dy / 1500; // Even less sensitive
+
+          if (isLeft) {
+            setBrightness(prev => {
+              const next = Math.max(0.1, Math.min(1.0, prev + delta));
+              showGestureFeedback('brightness', next);
+              return next;
+            });
+          } else {
+            setVolume(prev => {
+              const next = Math.max(0, Math.min(1.0, prev + delta));
+              showGestureFeedback('volume', next);
+              return next;
+            });
+          }
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        // If it was just a tap (no significant move and not a double tap already handled)
+        if (Math.abs(gestureState.dx) < 10 && Math.abs(gestureState.dy) < 10) {
+          // Normal tap - toggle controls
+          setShowControls(prev => !prev);
+          if (!showControls) resetControlsTimeout();
+        }
+      }
+    })
+  ).current;
 
   // Get current source
   const currentSource = sources[selectedQuality];
@@ -94,7 +226,7 @@ export default function ShowfimPlayer({
     setShowControls(true);
     controlsTimeoutRef.current = setTimeout(() => {
       // Check current state using the ref or just set false if valid
-      setShowControls(false); 
+      setShowControls(false);
     }, 4000);
   }, []);
 
@@ -112,8 +244,8 @@ export default function ShowfimPlayer({
       if (savedProgress && savedProgress.time > 10) {
         // Resume from saved position (minus 5 seconds for context)
         const resumeTime = Math.max(0, savedProgress.time - 5);
-        if (videoRef.current) {
-          await videoRef.current.setPositionAsync(resumeTime * 1000);
+        if (activeVideoRef.current) {
+          await activeVideoRef.current.setPositionAsync(resumeTime * 1000);
         }
       }
     };
@@ -140,7 +272,7 @@ export default function ShowfimPlayer({
           const parts = contentId.split('-');
           const type = parts[0] as 'movie' | 'tv';
           const id = parseInt(parts[1]);
-          
+
           if (!isNaN(id) && (type === 'movie' || type === 'tv')) {
             await addToWatchHistoryAsync({
               id,
@@ -153,7 +285,7 @@ export default function ShowfimPlayer({
           console.error('Error recording watch history', e);
         }
       };
-      
+
       recordHistory();
     }
   }, [contentId, currentTime, duration, title, poster]);
@@ -185,33 +317,34 @@ export default function ShowfimPlayer({
 
     // Improve loading check
     if (status.isPlaying) {
-         setIsLoading(false);
+      setIsLoading(false);
     } else {
-         setIsLoading(status.isBuffering);
+      setIsLoading(status.isBuffering);
     }
-    
+
     setIsPlaying(status.isPlaying);
     setCurrentTime(status.positionMillis / 1000);
     setDuration(status.durationMillis ? status.durationMillis / 1000 : 0);
-    
+    setPlayableDuration(status.playableDurationMillis ? status.playableDurationMillis / 1000 : 0);
+
     // Check if video ended and has next episode
     if (status.didJustFinish && episodeInfo?.hasNextEpisode && onNextEpisode) {
       startNextEpisodeCountdown();
     }
   };
-  
+
   // Start countdown for next episode auto-play
   const shouldPlayNextRef = useRef(false);
-  
+
   const startNextEpisodeCountdown = () => {
     setShowNextEpisodeOverlay(true);
     setNextEpisodeCountdown(10);
     shouldPlayNextRef.current = false;
-    
+
     if (countdownRef.current) {
       clearInterval(countdownRef.current);
     }
-    
+
     countdownRef.current = setInterval(() => {
       setNextEpisodeCountdown(prev => {
         if (prev <= 1) {
@@ -223,7 +356,7 @@ export default function ShowfimPlayer({
       });
     }, 1000);
   };
-  
+
   // Watch for countdown completion and trigger next episode
   useEffect(() => {
     if (nextEpisodeCountdown === 0 && shouldPlayNextRef.current) {
@@ -235,7 +368,7 @@ export default function ShowfimPlayer({
       }, 0);
     }
   }, [nextEpisodeCountdown, onNextEpisode]);
-  
+
   // Cancel next episode countdown
   const cancelNextEpisodeCountdown = () => {
     if (countdownRef.current) {
@@ -245,7 +378,7 @@ export default function ShowfimPlayer({
     setShowNextEpisodeOverlay(false);
     setNextEpisodeCountdown(10);
   };
-  
+
   // Play next episode immediately
   const playNextEpisodeNow = () => {
     if (countdownRef.current) {
@@ -258,7 +391,7 @@ export default function ShowfimPlayer({
       onNextEpisode?.();
     }, 0);
   };
-  
+
   // Cleanup countdown on unmount
   useEffect(() => {
     return () => {
@@ -269,19 +402,19 @@ export default function ShowfimPlayer({
   }, []);
 
   const togglePlayPause = async () => {
-    if (!videoRef.current) return;
-    
+    if (!activeVideoRef.current) return;
+
     if (isPlaying) {
-      await videoRef.current.pauseAsync();
+      await activeVideoRef.current.pauseAsync();
     } else {
-      await videoRef.current.playAsync();
+      await activeVideoRef.current.playAsync();
     }
     resetControlsTimeout();
   };
 
   const handleSeek = async (seekTime: number) => {
-    if (!videoRef.current) return;
-    await videoRef.current.setPositionAsync(seekTime * 1000);
+    if (!activeVideoRef.current) return;
+    await activeVideoRef.current.setPositionAsync(seekTime * 1000);
     setCurrentTime(seekTime);
     resetControlsTimeout();
   };
@@ -310,69 +443,148 @@ export default function ShowfimPlayer({
       setShowQualityModal(false);
       return;
     }
-    
-    // Start preloading the new quality in the background
-    // Current video keeps playing uninterrupted
+
     setPendingQualityIndex(index);
-    setPreloadReady(false);
+    setIsSwapping(true);
     setShowQualityModal(false);
-    
-    // The preload Video's onLoad will handle the swap
+
+    // Set the source on the inactive video component to start background loading
+    if (activeVideo === 'A') {
+      setSourceB(sources[index]);
+    } else {
+      setSourceA(sources[index]);
+    }
   };
-  
-  // Handle preload video ready - perform invisible swap
-  const handlePreloadReady = async () => {
+
+  // Handle background video ready - perform seamless blend-in swap
+  const handleBgVideoReady = async () => {
     if (pendingQualityIndex === null) return;
-    
+
     try {
-      // Get current position from main video
+      // Get current position from active video
       let swapPosition = currentTime * 1000;
-      if (videoRef.current) {
-        const status = await videoRef.current.getStatusAsync();
+      if (activeVideoRef.current) {
+        const status = await activeVideoRef.current.getStatusAsync();
         if (status.isLoaded) {
           swapPosition = status.positionMillis;
         }
       }
-      
-      // Seek preload video to exact position
-      if (preloadVideoRef.current) {
-        await preloadVideoRef.current.setPositionAsync(swapPosition);
+
+      // Sync inactive video to current position and play
+      if (inactiveVideoRef.current) {
+        await inactiveVideoRef.current.setPositionAsync(swapPosition);
         if (isPlaying) {
-          await preloadVideoRef.current.playAsync();
+          await inactiveVideoRef.current.playAsync();
         }
       }
-      
-      // Small buffer time to ensure smooth playback
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      // Perform the swap - switch quality index
-      const newQuality = pendingQualityIndex;
+
+      // Small buffer to ensure background video is actually playing and decoded
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Perform the swap
+      const newActive = activeVideo === 'A' ? 'B' : 'A';
+      setActiveVideo(newActive);
+      setSelectedQuality(pendingQualityIndex);
+
+      // Now playing new video - pause the OLD video (don't stop yet, just pause to be safe)
+      if (activeVideoRef.current) {
+        await activeVideoRef.current.pauseAsync();
+      }
+
+      // Cleanup
       setPendingQualityIndex(null);
-      setPreloadReady(false);
-      setSelectedQuality(newQuality);
-      
-      // Seek main video to current position (now playing new quality)
-      setTimeout(async () => {
-        if (videoRef.current) {
-          try {
-            const preloadStatus = preloadVideoRef.current ? await preloadVideoRef.current.getStatusAsync() : null;
-            const targetPos = preloadStatus?.isLoaded ? preloadStatus.positionMillis : swapPosition;
-            await videoRef.current.setPositionAsync(targetPos);
-            if (isPlaying) {
-              await videoRef.current.playAsync();
-            }
-          } catch (e) {
-            console.log('Position sync after swap:', e);
-          }
-        }
-      }, 100);
-      
+      setIsSwapping(false);
+
+      // Clear the now unused source after a delay
+      setTimeout(() => {
+        if (newActive === 'A') setSourceB(null); else setSourceA(null);
+      }, 1000);
+
     } catch (e) {
-      console.error('Error during quality swap:', e);
+      console.error('Error during seamless resolution swap:', e);
       setPendingQualityIndex(null);
-      setPreloadReady(false);
+      setIsSwapping(false);
     }
   };
+
+  // Fetch and parse subtitles when selectedSubtitle changes
+  useEffect(() => {
+    if (!selectedSubtitle) {
+      setParsedSubtitles([]);
+      setActiveCue(null);
+      return;
+    }
+
+    const fetchSubtitles = async () => {
+      try {
+        const response = await fetch(selectedSubtitle.url);
+        const text = await response.text();
+
+        // Simple SRT/VTT parser
+        const cues: SubtitleCue[] = [];
+        // Regex for timestamps: 00:00:20,000 --> 00:00:24,400 or 00:20.000 --> 00:24.400
+        const timestampRegex = /(\d{1,2}:)?\d{1,2}:\d{1,2}[,.]\d{3} --> (\d{1,2}:)?\d{1,2}:\d{1,2}[,.]\d{3}/;
+
+        const lines = text.split(/\r?\n/);
+        let currentCue: Partial<SubtitleCue> | null = null;
+
+        const parseTime = (timeStr: string) => {
+          const parts = timeStr.replace(',', '.').split(':');
+          if (parts.length === 3) {
+            return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2]);
+          } else {
+            return parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+          }
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+
+          if (timestampRegex.test(line)) {
+            const [startStr, endStr] = line.split(' --> ');
+            currentCue = {
+              start: parseTime(startStr),
+              end: parseTime(endStr),
+              text: ''
+            };
+          } else if (currentCue && line === '') {
+            if (currentCue.text) {
+              cues.push(currentCue as SubtitleCue);
+            }
+            currentCue = null;
+          } else if (currentCue) {
+            currentCue.text = currentCue.text ? `${currentCue.text}\n${line}` : line;
+          }
+        }
+
+        // Push last cue if file doesn't end with empty line
+        if (currentCue && currentCue.text) {
+          cues.push(currentCue as SubtitleCue);
+        }
+
+        setParsedSubtitles(cues);
+      } catch (e) {
+        console.error('Error fetching/parsing subtitles:', e);
+        setParsedSubtitles([]);
+      }
+    };
+
+    fetchSubtitles();
+  }, [selectedSubtitle]);
+
+  // Sync active cue with currentTime
+  useEffect(() => {
+    if (parsedSubtitles.length === 0) {
+      setActiveCue(null);
+      return;
+    }
+
+    // Binary search would be faster but for simple vtt/srt a find is usually fine
+    const cue = parsedSubtitles.find(c => currentTime >= c.start && currentTime <= c.end);
+    if (cue !== activeCue) {
+      setActiveCue(cue || null);
+    }
+  }, [currentTime, parsedSubtitles]);
 
   const handleSubtitleChange = (subtitle: Caption | null) => {
     setSelectedSubtitle(subtitle);
@@ -408,49 +620,70 @@ export default function ShowfimPlayer({
 
   return (
     <View style={[styles.container, isFullscreen && styles.containerFullscreen]}>
+      {/* Black Overlay for Brightness (Simulated) */}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.brightnessOverlay,
+          { backgroundColor: `rgba(0,0,0,${1 - brightness})` }
+        ]}
+      />
+
       {/* Video */}
-      <TouchableOpacity 
-        style={styles.videoContainer} 
-        activeOpacity={1}
-        onPress={resetControlsTimeout}
+      <View
+        style={styles.videoContainer}
+        {...panResponder.panHandlers}
       >
-        <Video
-          ref={videoRef}
-          source={{ uri: currentSource.url }}
-          style={styles.video}
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay={autoPlay}
-          onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-          onError={(error) => setError(error)}
-          posterSource={poster ? { uri: poster } : undefined}
-          usePoster={!!poster}
-        />
-        
-        {/* Hidden Preload Video for seamless quality switching */}
-        {pendingSource && (
+        {/* Video A */}
+        {sourceA && (
           <Video
-            ref={preloadVideoRef}
-            source={{ uri: pendingSource.url }}
-            style={styles.hiddenVideo}
+            ref={videoA}
+            source={{ uri: sourceA.url }}
+            style={[styles.video, activeVideo === 'B' && styles.hiddenVideo]}
             resizeMode={ResizeMode.CONTAIN}
-            shouldPlay={false}
-            isMuted={true}
-            onLoad={() => {
-              setPreloadReady(true);
-              handlePreloadReady();
-            }}
-            onError={() => {
-              // If preload fails, cancel the switch
-              setPendingQualityIndex(null);
-              setPreloadReady(false);
-            }}
+            shouldPlay={autoPlay && activeVideo === 'A'}
+            volume={volume}
+            progressUpdateIntervalMillis={500}
+            onPlaybackStatusUpdate={activeVideo === 'A' ? handlePlaybackStatusUpdate : undefined}
+            onLoad={activeVideo === 'B' ? handleBgVideoReady : undefined}
+            onError={(e) => activeVideo === 'A' && setError(e)}
+            posterSource={poster ? { uri: poster } : undefined}
+            usePoster={!!poster && activeVideo === 'A'}
           />
         )}
 
-        {/* Loading Indicator (only for initial load, not quality switch) */}
-        {isLoading && !pendingQualityIndex && (
+        {/* Video B */}
+        {sourceB && (
+          <Video
+            ref={videoB}
+            source={{ uri: sourceB.url }}
+            style={[styles.video, activeVideo === 'A' && styles.hiddenVideo]}
+            resizeMode={ResizeMode.CONTAIN}
+            shouldPlay={autoPlay && activeVideo === 'B'}
+            volume={volume}
+            progressUpdateIntervalMillis={500}
+            onPlaybackStatusUpdate={activeVideo === 'B' ? handlePlaybackStatusUpdate : undefined}
+            onLoad={activeVideo === 'A' ? handleBgVideoReady : undefined}
+            onError={(e) => activeVideo === 'B' && setError(e)}
+            posterSource={poster ? { uri: poster } : undefined}
+            usePoster={!!poster && activeVideo === 'B'}
+          />
+        )}
+
+        {/* Subtitle Overlay */}
+        {activeCue && (
+          <View style={styles.subtitleOverlay} pointerEvents="none">
+            <Text style={styles.subtitleText}>{activeCue.text}</Text>
+          </View>
+        )}
+
+        {/* Loading Indicator */}
+        {(isLoading || isSwapping) && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#9727e7" />
+            {isSwapping && (
+              <Text style={styles.swappingText}>Switching to {sources[pendingQualityIndex!]?.resolution}p...</Text>
+            )}
           </View>
         )}
 
@@ -480,7 +713,7 @@ export default function ShowfimPlayer({
               <Text style={styles.nextEpisodeInfo}>
                 Season {episodeInfo.season}, Episode {episodeInfo.episode + 1}
               </Text>
-              
+
               {/* Countdown Circle */}
               <View style={styles.countdownContainer}>
                 <View style={styles.countdownCircle}>
@@ -488,18 +721,18 @@ export default function ShowfimPlayer({
                 </View>
                 <Text style={styles.countdownLabel}>seconds</Text>
               </View>
-              
+
               {/* Action Buttons */}
               <View style={styles.nextEpisodeButtons}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.playNowButton}
                   onPress={playNextEpisodeNow}
                 >
                   <MaterialIcons name="play-arrow" size={24} color="white" />
                   <Text style={styles.playNowText}>Play Now</Text>
                 </TouchableOpacity>
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   style={styles.cancelButton}
                   onPress={cancelNextEpisodeCountdown}
                 >
@@ -512,7 +745,7 @@ export default function ShowfimPlayer({
 
         {/* Next Episode Button (shown in controls when available) */}
         {episodeInfo?.hasNextEpisode && showControls && !showNextEpisodeOverlay && (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.nextEpisodeSmallButton}
             onPress={playNextEpisodeNow}
           >
@@ -539,14 +772,14 @@ export default function ShowfimPlayer({
               </TouchableOpacity>
               <Text style={styles.titleText} numberOfLines={1}>{title}</Text>
               <View style={styles.topActions}>
-                <TouchableOpacity 
-                  style={styles.topButton} 
+                <TouchableOpacity
+                  style={styles.topButton}
                   onPress={() => setShowSubtitleModal(true)}
                 >
                   <MaterialIcons name="subtitles" size={24} color={selectedSubtitle ? "#9727e7" : "white"} />
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.topButton} 
+                <TouchableOpacity
+                  style={styles.topButton}
                   onPress={() => setShowQualityModal(true)}
                 >
                   <MaterialIcons name="settings" size={24} color="white" />
@@ -559,15 +792,15 @@ export default function ShowfimPlayer({
               <TouchableOpacity style={styles.seekButton} onPress={seekBackward}>
                 <MaterialIcons name="replay-10" size={40} color="white" />
               </TouchableOpacity>
-              
+
               <TouchableOpacity style={styles.playButton} onPress={togglePlayPause}>
-                <MaterialIcons 
-                  name={isPlaying ? "pause" : "play-arrow"} 
-                  size={56} 
-                  color="white" 
+                <MaterialIcons
+                  name={isPlaying ? "pause" : "play-arrow"}
+                  size={56}
+                  color="white"
                 />
               </TouchableOpacity>
-              
+
               <TouchableOpacity style={styles.seekButton} onPress={seekForward}>
                 <MaterialIcons name="forward-10" size={40} color="white" />
               </TouchableOpacity>
@@ -576,34 +809,69 @@ export default function ShowfimPlayer({
             {/* Bottom Bar */}
             <View style={styles.bottomBar}>
               <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
-              
+
               <View style={styles.progressContainer}>
+                <View style={styles.bufferProgressBackground}>
+                  <View style={[styles.bufferProgressFill, { width: `${(playableDuration / Math.max(duration, 0.1)) * 100}%` }]} />
+                </View>
                 <Slider
                   style={{ width: '100%', height: 40 }}
                   minimumValue={0}
                   maximumValue={Math.max(duration, 0.1)} // Prevent 0 maximum
                   value={currentTime}
                   minimumTrackTintColor="#9727e7"
-                  maximumTrackTintColor="rgba(255, 255, 255, 0.3)"
+                  maximumTrackTintColor="transparent" // Let the buffer show through
                   thumbTintColor="#9727e7"
                   onSlidingComplete={handleSeek}
                   onValueChange={handleSliderValueChange}
                 />
               </View>
-              
+
               <Text style={styles.timeText}>{formatTime(duration)}</Text>
-              
+
               <TouchableOpacity style={styles.fullscreenButton} onPress={toggleFullscreen}>
-                <MaterialIcons 
-                  name={isFullscreen ? "fullscreen-exit" : "fullscreen"} 
-                  size={28} 
-                  color="white" 
+                <MaterialIcons
+                  name={isFullscreen ? "fullscreen-exit" : "fullscreen"}
+                  size={28}
+                  color="white"
                 />
               </TouchableOpacity>
             </View>
           </LinearGradient>
         )}
-      </TouchableOpacity>
+
+        {/* Gesture Feedback Overlay */}
+        {showGestureOverlay && (
+          <View style={styles.gestureOverlay}>
+            <View style={styles.gestureIconContainer}>
+              <MaterialIcons
+                name={gestureType === 'volume' ? (gestureValue === 0 ? 'volume-off' : 'volume-up') : 'brightness-6'}
+                size={32}
+                color="white"
+              />
+              <View style={styles.gestureProgressBar}>
+                <View style={[styles.gestureProgressFill, { width: `${gestureValue * 100}%` }]} />
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Skip Animation Overlay */}
+        {showSkipOverlay && (
+          <View style={[
+            styles.skipOverlay,
+            skipType === 'backward' ? { left: '10%' } : { right: '10%' }
+          ]}>
+            <View style={styles.skipCircle}>
+              <MaterialIcons
+                name={skipType === 'backward' ? 'replay-10' : 'forward-10'}
+                size={40}
+                color="white"
+              />
+            </View>
+          </View>
+        )}
+      </View>
 
       {/* Quality Selection Modal */}
       <Modal
@@ -612,8 +880,8 @@ export default function ShowfimPlayer({
         animationType="fade"
         onRequestClose={() => setShowQualityModal(false)}
       >
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
+        <TouchableOpacity
+          style={styles.modalOverlay}
           activeOpacity={1}
           onPress={() => setShowQualityModal(false)}
         >
@@ -648,8 +916,8 @@ export default function ShowfimPlayer({
         animationType="fade"
         onRequestClose={() => setShowSubtitleModal(false)}
       >
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
+        <TouchableOpacity
+          style={styles.modalOverlay}
           activeOpacity={1}
           onPress={() => setShowSubtitleModal(false)}
         >
@@ -706,10 +974,54 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
   },
   video: {
-    width: '100%',
+    ...StyleSheet.absoluteFillObject,
+  },
+  brightnessOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+  },
+  gestureOverlay: {
+    position: 'absolute',
+    top: '40%',
+    left: '50%',
+    marginLeft: -40,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 15,
+    borderRadius: 15,
+    alignItems: 'center',
+    width: 80,
+    zIndex: 20,
+  },
+  gestureIconContainer: {
+    alignItems: 'center',
+    gap: 10,
+  },
+  gestureProgressBar: {
+    width: 50,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  gestureProgressFill: {
     height: '100%',
+    backgroundColor: '#9727e7',
+  },
+  skipOverlay: {
+    position: 'absolute',
+    top: '40%',
+    zIndex: 20,
+  },
+  skipCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -718,10 +1030,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   hiddenVideo: {
+    opacity: 0,
+    zIndex: -1,
     position: 'absolute',
     width: 1,
     height: 1,
-    opacity: 0,
+  },
+  swappingText: {
+    color: 'white',
+    marginTop: 10,
+    fontSize: 14,
+    fontWeight: '500',
   },
   qualitySwitchBadge: {
     position: 'absolute',
@@ -1013,5 +1332,42 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '500',
+  },
+  subtitleOverlay: {
+    position: 'absolute',
+    bottom: 100,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 30,
+  },
+  subtitleText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 12,
+    textShadowColor: 'rgba(0,0,0,1)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  bufferProgressBackground: {
+    position: 'absolute',
+    left: 15, // Slider padding
+    right: 15,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 2,
+    overflow: 'hidden',
+    // Align with slider's track
+    top: 18,
+  },
+  bufferProgressFill: {
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.4)',
   },
 });

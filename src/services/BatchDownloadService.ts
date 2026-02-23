@@ -1,6 +1,4 @@
-import { StreamData, processExternalStreams, StreamSource } from '../utils/streamUtils';
-
-const API_BASE = 'https://02moviedownloader.site/api/download';
+import { StreamData, processDownloads, StreamSource, MOVIEBOX_API_BASE } from '../utils/streamUtils';
 
 /**
  * Fetch stream source for a single TV episode
@@ -11,7 +9,7 @@ export async function fetchEpisodeStreams(
     episode: number
 ): Promise<{ sources: StreamSource[]; error?: string }> {
     try {
-        const response = await fetch(`${API_BASE}/tv/${showId}/${season}/${episode}`);
+        const response = await fetch(`${MOVIEBOX_API_BASE}/api/download/tv/${showId}/${season}/${episode}`);
 
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
@@ -32,8 +30,8 @@ export async function fetchEpisodeStreams(
             hasResource: downloadData.hasResource ?? true,
         };
 
-        // Process external streams to get download sources
-        const sources = processExternalStreams(parsedStreams.externalStreams);
+        // Process downloads to get direct download sources
+        const sources = processDownloads(parsedStreams.downloads);
 
         return { sources };
     } catch (err) {
