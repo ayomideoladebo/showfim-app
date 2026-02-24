@@ -15,6 +15,8 @@ export interface DownloadItem {
     episode?: number;
     quality: string;
     uri: string; // local file uri
+    subtitleUrl?: string; // remote subtitle url
+    subtitleUri?: string; // local subtitle file uri
     remoteUrl: string;
     size: string;
     progress: number;
@@ -96,7 +98,7 @@ class DownloadManager {
     }
 
     public async startDownload(
-        item: Omit<DownloadItem, 'status' | 'progress' | 'date' | 'uri' | 'resumeData'>
+        item: Omit<DownloadItem, 'status' | 'progress' | 'date' | 'uri' | 'subtitleUri' | 'resumeData'>
     ) {
         const existing = this.downloads.find(d => d.id === item.id);
         if (existing && existing.status === 'completed') {
@@ -106,6 +108,13 @@ class DownloadManager {
 
         const downloadDate = new Date().toISOString();
         const localUri = DOWNLOAD_DIR + `${item.id}.mp4`;
+        let localSubtitleUri: string | undefined = undefined;
+
+        if (item.subtitleUrl) {
+            // Check original subtitle extension to handle .srt or .vtt correctly
+            const ext = item.subtitleUrl.split('?')[0].split('.').pop() || 'vtt';
+            localSubtitleUri = DOWNLOAD_DIR + `${item.id}_sub.${ext}`;
+        }
 
         const newDownload: DownloadItem = {
             ...item,
@@ -113,6 +122,7 @@ class DownloadManager {
             progress: 0,
             date: downloadDate,
             uri: localUri,
+            subtitleUri: localSubtitleUri,
         };
 
         if (existing) {
@@ -141,9 +151,23 @@ class DownloadManager {
         this.downloadResumables[item.id] = resumable;
 
         try {
+            // Simultaneously download the subtitle file if available
+            let subtitleResultUri: string | undefined = undefined;
+            if (item.subtitleUrl && localSubtitleUri) {
+                try {
+                    const subResumable = FileSystem.createDownloadResumable(item.subtitleUrl, localSubtitleUri, {});
+                    const subResult = await subResumable.downloadAsync();
+                    if (subResult && subResult.uri) {
+                        subtitleResultUri = subResult.uri;
+                    }
+                } catch (e) {
+                    console.warn('Subtitle download failed, continuing with video only', e);
+                }
+            }
+
             const result = await resumable.downloadAsync();
             if (result && result.uri) {
-                this.completeDownload(item.id, result.uri);
+                this.completeDownload(item.id, result.uri, subtitleResultUri);
             }
         } catch (e) {
             console.error('Download failed:', e);
@@ -241,9 +265,12 @@ class DownloadManager {
     public async deleteDownload(id: string) {
         const item = this.downloads.find(d => d.id === id);
         if (item) {
-            // 1. Remove file
+            // 1. Remove files
             try {
                 await FileSystem.deleteAsync(item.uri, { idempotent: true });
+                if (item.subtitleUri) {
+                    await FileSystem.deleteAsync(item.subtitleUri, { idempotent: true });
+                }
             } catch (e) {
                 console.warn('File delete failed (might verify existence)', e);
             }
@@ -293,9 +320,9 @@ class DownloadManager {
         }
     }
 
-    private completeDownload(id: string, uri: string) {
+    private completeDownload(id: string, uri: string, subtitleUri?: string) {
         this.downloads = this.downloads.map(d =>
-            d.id === id ? { ...d, status: 'completed', progress: 100, uri } : d
+            d.id === id ? { ...d, status: 'completed', progress: 100, uri, ...(subtitleUri ? { subtitleUri } : {}) } : d
         );
         delete this.downloadResumables[id];
         this.persist();

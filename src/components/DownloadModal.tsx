@@ -60,12 +60,21 @@ export default function DownloadModal({
     let quality = 'unknown';
     let size = 'unknown';
     let type: 'video' | 'subtitle' = 'video';
+    let subtitleUrlToDownload: string | undefined = undefined;
 
     if (activeTab === 'video' && selectedSource) {
       url = selectedSource.downloadUrl || selectedSource.url;
       quality = selectedSource.resolution + 'p';
       size = selectedSource.size;
       type = 'video';
+
+      // Automatically find English subtitles to download with video
+      const englishSub = subtitles.find(
+        (sub) => sub.lan === 'en' || sub.lanName?.toLowerCase().includes('english')
+      );
+      if (englishSub) {
+        subtitleUrlToDownload = englishSub.url;
+      }
     } else if (activeTab === 'subtitle' && selectedSubtitle) {
       url = selectedSubtitle.url;
       quality = selectedSubtitle.lan;
@@ -74,7 +83,7 @@ export default function DownloadModal({
     }
 
     if (url) {
-      const id = `${title.replace(/\s+/g, '_')}_${quality}`; // Simple ID generation
+      const id = `${title.replace(/\\s+/g, '_')}_${quality}`; // Simple ID generation
       startDownload({
         id,
         contentId: id, // Mapping to same for now, ideally pass movieId
@@ -84,6 +93,7 @@ export default function DownloadModal({
         quality,
         remoteUrl: url,
         size,
+        subtitleUrl: subtitleUrlToDownload,
       });
 
       Alert.alert('Download Started', `Downloading ${title} (${quality}). check "Downloads" tab.`);

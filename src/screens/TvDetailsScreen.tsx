@@ -176,7 +176,7 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
   // Handle episode play
   const handlePlayEpisode = (episode: TMDBEpisode) => {
     // If playing same episode and data ready
-    if (playingEpisode?.season === selectedSeason && playingEpisode?.episode === episode.episode_number && streams?.downloads?.length > 0) {
+    if (playingEpisode?.season === selectedSeason && playingEpisode?.episode === episode.episode_number && streams?.downloads?.length && streams.downloads.length > 0) {
       setShowPlayer(true);
       return;
     }

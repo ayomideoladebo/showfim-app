@@ -65,7 +65,7 @@ export function useWatchlist() {
     const loadFromSupabase = async (uid: string) => {
         try {
             setLoading(true);
-            const { data, error } = await supabase
+            const { data, error } = await (supabase as any)
                 .from('watchlist')
                 .select('*')
                 .eq('user_id', uid)
@@ -111,7 +111,7 @@ export function useWatchlist() {
     // Add to Supabase
     const addToSupabase = async (uid: string, item: Omit<WatchlistItem, 'addedAt'>) => {
         try {
-            await supabase.from('watchlist').upsert({
+            await (supabase as any).from('watchlist').upsert({
                 user_id: uid,
                 content_id: item.id,
                 content_type: item.type,
@@ -153,7 +153,7 @@ export function useWatchlist() {
     const removeFromWatchlist = useCallback(async (id: number, type: 'movie' | 'tv') => {
         if (userId) {
             try {
-                await supabase
+                await (supabase as any)
                     .from('watchlist')
                     .delete()
                     .eq('user_id', userId)
@@ -178,7 +178,7 @@ export function useWatchlist() {
 
     const clearWatchlist = useCallback(async () => {
         if (userId) {
-            await supabase.from('watchlist').delete().eq('user_id', userId);
+            await (supabase as any).from('watchlist').delete().eq('user_id', userId);
             setWatchlist([]);
         } else {
             await AsyncStorage.removeItem(WATCHLIST_KEY);

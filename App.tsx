@@ -26,13 +26,14 @@ import SecurityScreen from './src/screens/SecurityScreen';
 import ShowfimPlayer from './src/components/player/ShowfimPlayer';
 import { DownloadItem } from './src/services/DownloadManager';
 import { BottomNavigation } from './src/components/BottomNavigation';
-import { 
-  useFonts, 
-  Manrope_400Regular, 
-  Manrope_500Medium, 
-  Manrope_600SemiBold, 
-  Manrope_700Bold, 
-  Manrope_800ExtraBold 
+import { Caption } from './src/utils/streamUtils';
+import {
+  useFonts,
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+  Manrope_800ExtraBold
 } from '@expo-google-fonts/manrope';
 
 type Tab = 'home' | 'search' | 'downloads' | 'profile';
@@ -109,7 +110,7 @@ function MainLayout() {
 
   // 3. Main App (Authenticated OR Guest)
   // We only block specific overlays if needed, otherwise allow access
-  
+
   if (showNotifications) {
     // Maybe block notifications for guest? For now allow or let screen handle empty state
     return <NotificationsScreen onBack={() => setShowNotifications(false)} />;
@@ -117,8 +118,8 @@ function MainLayout() {
 
   if (showWatchlist) {
     return (
-      <WatchlistScreen 
-        onBack={() => setShowWatchlist(false)} 
+      <WatchlistScreen
+        onBack={() => setShowWatchlist(false)}
         onMoviePress={(movieId) => {
           setShowWatchlist(false);
           setSelectedMovieId(movieId);
@@ -133,8 +134,8 @@ function MainLayout() {
 
   if (showSettings) {
     return (
-      <SettingsScreen 
-        onBack={() => setShowSettings(false)} 
+      <SettingsScreen
+        onBack={() => setShowSettings(false)}
         onAccountDetailsPress={() => setShowAccountDetails(true)}
         onLogout={async () => {
           await signOut();
@@ -150,8 +151,8 @@ function MainLayout() {
 
   if (showAccountDetails) {
     return (
-      <AccountDetailsScreen 
-        onBack={() => setShowAccountDetails(false)} 
+      <AccountDetailsScreen
+        onBack={() => setShowAccountDetails(false)}
         onSecurityPress={() => setShowSecurity(true)}
       />
     );
@@ -159,7 +160,7 @@ function MainLayout() {
 
   if (showEarnPoints) {
     return (
-      <EarnPointsScreen 
+      <EarnPointsScreen
         onClose={() => setShowEarnPoints(false)}
         onRedeemPress={() => setShowRedeemPoints(true)}
       />
@@ -180,7 +181,7 @@ function MainLayout() {
 
   if (showShuffle) {
     return (
-      <ShuffleLoadingScreen 
+      <ShuffleLoadingScreen
         onClose={() => setShowShuffle(false)}
         onMovieSelect={(movieId) => {
           setShowShuffle(false);
@@ -196,9 +197,9 @@ function MainLayout() {
 
   if (selectedActor) {
     return (
-      <ActorDetailScreen 
-        actor={selectedActor} 
-        onBack={() => setSelectedActor(null)} 
+      <ActorDetailScreen
+        actor={selectedActor}
+        onBack={() => setSelectedActor(null)}
         onMoviePress={(movieId) => {
           setSelectedActor(null);
           setSelectedMovieId(movieId);
@@ -213,9 +214,9 @@ function MainLayout() {
 
   if (selectedMovieId) {
     return (
-      <MovieDetailsScreen 
+      <MovieDetailsScreen
         movieId={selectedMovieId}
-        onBack={() => setSelectedMovieId(null)} 
+        onBack={() => setSelectedMovieId(null)}
         onActorPress={(actorId) => {
           setSelectedMovieId(null);
           setSelectedActor({ id: actorId });
@@ -227,9 +228,9 @@ function MainLayout() {
 
   if (selectedTvId) {
     return (
-      <TvDetailsScreen 
+      <TvDetailsScreen
         tvId={selectedTvId}
-        onBack={() => setSelectedTvId(null)} 
+        onBack={() => setSelectedTvId(null)}
         onActorPress={(actorId) => {
           setSelectedTvId(null);
           setSelectedActor({ id: actorId });
@@ -242,6 +243,7 @@ function MainLayout() {
   if (playingDownload) {
     // Convert DownloadItem to StreamSource
     const source = {
+      name: playingDownload.quality,
       id: playingDownload.id,
       quality: playingDownload.quality,
       url: playingDownload.uri,
@@ -250,11 +252,20 @@ function MainLayout() {
       size: playingDownload.size,
     };
 
+    const localSubtitles: Caption[] = [];
+    if (playingDownload.subtitleUri) {
+      localSubtitles.push({
+        url: playingDownload.subtitleUri,
+        lan: 'en',
+        lanName: 'English',
+      });
+    }
+
     return (
       <View style={StyleSheet.absoluteFillObject}>
         <ShowfimPlayer
           sources={[source]}
-          subtitles={[]} // TODO: save/load subtitles for downloads
+          subtitles={localSubtitles}
           title={playingDownload.title}
           contentId={playingDownload.contentId}
           poster={playingDownload.posterUrl}
@@ -268,26 +279,26 @@ function MainLayout() {
   return (
     <View style={styles.appContainer}>
       {activeTab === 'home' && (
-         <HomeScreen 
-           onMoviePress={(movieId) => setSelectedMovieId(movieId)}
-           onTvPress={(tvId) => setSelectedTvId(tvId)}
-           onNotificationPress={() => setShowNotifications(true)}
-         />
+        <HomeScreen
+          onMoviePress={(movieId) => setSelectedMovieId(movieId)}
+          onTvPress={(tvId) => setSelectedTvId(tvId)}
+          onNotificationPress={() => setShowNotifications(true)}
+        />
       )}
       {activeTab === 'search' && (
-        <SearchScreen 
+        <SearchScreen
           onMoviePress={(movieId) => setSelectedMovieId(movieId)}
           onTvPress={(tvId) => setSelectedTvId(tvId)}
           onActorPress={(actorId) => setSelectedActor({ id: actorId })}
         />
       )}
       {activeTab === 'downloads' && (
-        <DownloadsScreen 
+        <DownloadsScreen
           onPlay={(item) => setPlayingDownload(item)}
         />
       )}
       {activeTab === 'profile' && (
-        <ProfileScreen 
+        <ProfileScreen
           onWatchlistPress={() => setShowWatchlist(true)}
           onDownloadsPress={() => setActiveTab('downloads')}
           onSettingsPress={() => setShowSettings(true)}
@@ -306,9 +317,9 @@ function MainLayout() {
           }}
         />
       )}
-      
-      <BottomNavigation 
-        activeTab={activeTab} 
+
+      <BottomNavigation
+        activeTab={activeTab}
         onTabPress={setActiveTab}
         onShufflePress={() => setShowShuffle(true)}
       />

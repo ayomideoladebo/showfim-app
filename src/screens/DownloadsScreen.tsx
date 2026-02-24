@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDownloads } from '../hooks/useDownloads';
+import * as Sharing from 'expo-sharing';
 
 const { width } = Dimensions.get('window');
 
@@ -22,6 +23,36 @@ export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
 
   const activeDownloads = downloads.filter(d => d.status === 'downloading' || d.status === 'paused');
   const completedDownloads = downloads.filter(d => d.status === 'completed');
+
+  const handleOptions = (item: any) => {
+    Alert.alert(
+      item.title,
+      'Choose an action',
+      [
+        {
+          text: 'Share / Save to Device',
+          onPress: async () => {
+            try {
+              const available = await Sharing.isAvailableAsync();
+              if (available) {
+                await Sharing.shareAsync(item.uri);
+              } else {
+                Alert.alert('Sharing is not available on this device');
+              }
+            } catch (error) {
+              console.log('Error sharing:', error);
+            }
+          }
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteDownload(item.id)
+        },
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    );
+  };
 
   // Storage State
   const [storage, setStorage] = React.useState({
@@ -248,8 +279,8 @@ export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
                   <TouchableOpacity style={styles.playBtn} onPress={() => onPlay(item)}>
                     <MaterialIcons name="play-arrow" size={24} color="white" />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.deleteBtn} onPress={() => Alert.alert('Delete', `Delete ${item.title}?`, [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: () => deleteDownload(item.id) }])}>
-                    <MaterialIcons name="delete-outline" size={20} color="#9ca3af" />
+                  <TouchableOpacity style={styles.deleteBtn} onPress={() => handleOptions(item)}>
+                    <MaterialIcons name="more-vert" size={24} color="#9ca3af" />
                   </TouchableOpacity>
                 </View>
               </View>

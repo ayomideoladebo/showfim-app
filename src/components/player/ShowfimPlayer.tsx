@@ -18,6 +18,7 @@ import { Video, ResizeMode, AVPlaybackStatus, VideoFullscreenUpdate } from 'expo
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as FileSystem from 'expo-file-system/legacy';
 import Slider from '@react-native-community/slider';
 import {
   StreamSource,
@@ -517,8 +518,13 @@ export default function ShowfimPlayer({
 
     const fetchSubtitles = async () => {
       try {
-        const response = await fetch(selectedSubtitle.url);
-        const text = await response.text();
+        let text = '';
+        if (selectedSubtitle.url.startsWith('file://')) {
+          text = await FileSystem.readAsStringAsync(selectedSubtitle.url);
+        } else {
+          const response = await fetch(selectedSubtitle.url);
+          text = await response.text();
+        }
 
         // Simple SRT/VTT parser
         const cues: SubtitleCue[] = [];
