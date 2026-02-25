@@ -63,6 +63,47 @@ export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
     percentApp: 0.05
   });
 
+  const [expandedShows, setExpandedShows] = React.useState<Record<string, boolean>>({});
+
+  const toggleShow = (showId: string) => {
+    setExpandedShows(prev => ({ ...prev, [showId]: !prev[showId] }));
+  };
+
+  const groupedDownloads = React.useMemo(() => {
+    const groups: Record<string, any> = {};
+    const result: any[] = [];
+
+    completedDownloads.forEach(item => {
+      if (item.type === 'tv' && item.contentId) {
+        if (!groups[item.contentId]) {
+          const showTitle = item.title.split(' - S')[0] || item.title;
+          groups[item.contentId] = {
+            type: 'show_group',
+            id: item.contentId,
+            title: showTitle,
+            posterUrl: item.posterUrl,
+            episodes: []
+          };
+          result.push(groups[item.contentId]);
+        }
+        groups[item.contentId].episodes.push(item);
+      } else {
+        result.push({ type: 'movie', id: item.id, item });
+      }
+    });
+
+    Object.values(groups).forEach(group => {
+      if (group.type === 'show_group') {
+        group.episodes.sort((a: any, b: any) => {
+          if (a.season !== b.season) return (a.season || 0) - (b.season || 0);
+          return (a.episode || 0) - (b.episode || 0);
+        });
+      }
+    });
+
+    return result;
+  }, [completedDownloads]);
+
   React.useEffect(() => {
     updateStorageInfo();
   }, [downloads]); // Update when downloads change
@@ -197,7 +238,11 @@ export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
                     </View>
 
                     <View style={styles.activeMeta}>
-                      <Text style={styles.activeSpeed}>{item.status === 'paused' ? 'Paused' : 'Downloading...'}</Text>
+                      <Text style={styles.activeSpeed}>
+                        {item.status === 'paused'
+                          ? 'Paused'
+                          : (item.downloadSpeed ? `Downloading - ${item.downloadSpeed}` : 'Downloading...')}
+                      </Text>
                       <View style={styles.activeDot} />
                       <Text style={styles.activeTime}>{item.quality}</Text>
                     </View>
@@ -253,38 +298,106 @@ export default function DownloadsScreen({ onPlay }: DownloadsScreenProps) {
           </View>
         ) : (
           <View style={styles.downloadList}>
-            {completedDownloads.map(item => (
-              <View key={item.id} style={styles.downloadItem}>
-                <View style={styles.downloadPosterWrapper}>
-                  {item.posterUrl ? (
-                    <Image source={{ uri: item.posterUrl }} style={styles.posterImage} />
-                  ) : (
-                    <View style={[styles.posterImage, { backgroundColor: '#333' }]} />
-                  )}
-                  <View style={styles.playOverlay}>
-                    <MaterialIcons name="play-circle-outline" size={28} color="white" />
-                  </View>
-                </View>
+            {groupedDownloads.map(group => {
+              if (group.type === 'movie') {
+                const item = group.item;
+                return (
+                  <View key={`movie-${item.id}`} style={styles.downloadItem}>
+                    <View style={styles.downloadPosterWrapper}>
+                      {item.posterUrl ? (
+                        <Image source={{ uri: item.posterUrl }} style={styles.posterImage} />
+                      ) : (
+                        <View style={[styles.posterImage, { backgroundColor: '#333' }]} />
+                      )}
+                      <View style={styles.playOverlay}>
+                        <MaterialIcons name="play-circle-outline" size={28} color="white" />
+                      </View>
+                    </View>
 
-                <View style={styles.itemContent}>
-                  <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
-                  <View style={styles.itemMeta}>
-                    <Text style={styles.metaText}>{item.quality}</Text>
-                    <View style={styles.metaDot} />
-                    <Text style={styles.metaText}>{item.size}</Text>
-                  </View>
-                </View>
+                    <View style={styles.itemContent}>
+                      <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
+                      <View style={styles.itemMeta}>
+                        <Text style={styles.metaText}>{item.quality}</Text>
+                        <View style={styles.metaDot} />
+                        <Text style={styles.metaText}>{item.size}</Text>
+                      </View>
+                    </View>
 
-                <View style={styles.itemActions}>
-                  <TouchableOpacity style={styles.playBtn} onPress={() => onPlay(item)}>
-                    <MaterialIcons name="play-arrow" size={24} color="white" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.deleteBtn} onPress={() => handleOptions(item)}>
-                    <MaterialIcons name="more-vert" size={24} color="#9ca3af" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
+                    <View style={styles.itemActions}>
+                      <TouchableOpacity style={styles.playBtn} onPress={() => onPlay(item)}>
+                        <MaterialIcons name="play-arrow" size={24} color="white" />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.deleteBtn} onPress={() => handleOptions(item)}>
+                        <MaterialIcons name="more-vert" size={24} color="#9ca3af" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              } else {
+                const show = group;
+                const isExpanded = expandedShows[show.id];
+                return (
+                  <View key={`show-${show.id}`} style={styles.showGroupContainer}>
+                    <TouchableOpacity style={styles.downloadItem} onPress={() => toggleShow(show.id)}>
+                      <View style={[styles.downloadPosterWrapper, { aspectRatio: 2 / 3, width: 64 }]}>
+                        {show.posterUrl ? (
+                          <Image source={{ uri: show.posterUrl }} style={styles.posterImage} />
+                        ) : (
+                          <View style={[styles.posterImage, { backgroundColor: '#333' }]} />
+                        )}
+                        <View style={styles.folderOverlay}>
+                          <MaterialIcons name="folder" size={24} color="white" />
+                        </View>
+                      </View>
+
+                      <View style={styles.itemContent}>
+                        <Text style={styles.movieTitle} numberOfLines={1}>{show.title}</Text>
+                        <View style={styles.itemMeta}>
+                          <MaterialIcons name="live-tv" size={14} color="#9ca3af" />
+                          <Text style={[styles.metaText, { marginLeft: 4 }]}>{show.episodes.length} Episode{show.episodes.length !== 1 ? 's' : ''}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.itemActions}>
+                        <MaterialIcons name={isExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"} size={28} color="#9ca3af" />
+                      </View>
+                    </TouchableOpacity>
+
+                    {isExpanded && (
+                      <View style={styles.episodesContainer}>
+                        {show.episodes.map((item: any) => {
+                          // shorten title to S1 E1 or similar
+                          const shortTitle = `S${item.season} E${item.episode}`;
+                          return (
+                            <View key={item.id} style={[styles.downloadItem, styles.nestedEpisodeItem]}>
+                              <View style={styles.nestedEpisodePrefix}>
+                                <View style={styles.nestedEpisodeLine} />
+                              </View>
+                              <View style={styles.itemContent}>
+                                <Text style={styles.movieTitle} numberOfLines={1}>{shortTitle}</Text>
+                                <View style={styles.itemMeta}>
+                                  <Text style={styles.metaText}>{item.quality}</Text>
+                                  <View style={styles.metaDot} />
+                                  <Text style={styles.metaText}>{item.size}</Text>
+                                </View>
+                              </View>
+                              <View style={styles.itemActions}>
+                                <TouchableOpacity style={[styles.playBtn, { width: 32, height: 32 }]} onPress={() => onPlay(item)}>
+                                  <MaterialIcons name="play-arrow" size={20} color="white" />
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.deleteBtn} onPress={() => handleOptions(item)}>
+                                  <MaterialIcons name="more-vert" size={20} color="#9ca3af" />
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          )
+                        })}
+                      </View>
+                    )}
+                  </View>
+                );
+              }
+            })}
           </View>
         )}
 
@@ -615,6 +728,42 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  showGroupContainer: {
+    backgroundColor: 'rgba(42, 31, 51, 0.4)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  folderOverlay: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  episodesContainer: {
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingBottom: 8,
+  },
+  nestedEpisodeItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+  },
+  nestedEpisodePrefix: {
+    width: 24,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  nestedEpisodeLine: {
+    width: 2,
+    height: '100%',
+    backgroundColor: 'rgba(151, 39, 231, 0.3)',
   },
 
   // Auto Download

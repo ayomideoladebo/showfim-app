@@ -731,9 +731,13 @@ export default function TvDetailsScreen({ tvId, onBack, onActorPress }: TvDetail
         onClose={() => setShowDownloadModal(false)}
         sources={processedSources}
         subtitles={subtitles}
-        title={tvShow?.name || 'Episode'}
+        title={playingEpisode ? `${tvShow?.name} - S${playingEpisode.season}E${playingEpisode.episode}` : (tvShow?.name || 'Episode')}
         posterUrl={tvShow?.poster_path ? getPosterUrl(tvShow.poster_path) : ''}
         loading={streamsLoading}
+        contentId={String(tvId)}
+        type="tv"
+        season={playingEpisode?.season}
+        episode={playingEpisode?.episode}
       />
 
       {/* Video Player Modal */}

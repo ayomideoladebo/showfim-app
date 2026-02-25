@@ -11,41 +11,116 @@ const { width } = Dimensions.get('window');
 interface EarnPointsScreenProps {
   onClose: () => void;
   onRedeemPress?: () => void;
+  onBack?: () => void;
+  onHistoryPress?: () => void;
 }
 
-export default function EarnPointsScreen({ onClose, onRedeemPress }: EarnPointsScreenProps) {
+export default function EarnPointsScreen({ onClose, onRedeemPress, onBack, onHistoryPress }: EarnPointsScreenProps) {
   const { user } = useAuth();
   const [pointsBalance, setPointsBalance] = useState(0);
   const [level, setLevel] = useState(1);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchUserData();
-  }, []);
+  // Real task tracking
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
 
   const fetchUserData = async () => {
     if (!user) {
       setLoading(false);
       return;
     }
-
     try {
-      const { data, error } = await supabase
-        .from('profiles')
+      setLoading(true);
+      // Fetch points and level
+      const { data: profileData } = await (supabase
+        .from('profiles') as any)
         .select('points_earned, level')
         .eq('id', user.id)
         .single();
 
-      if (!error && data) {
-        setPointsBalance((data as any).points_earned || 0);
-        setLevel((data as any).level || 1);
+      if (profileData) {
+        setPointsBalance(profileData.points_earned);
+        setLevel(profileData.level || 1);
       }
-    } catch (err) {
-      console.error('Error fetching user data:', err);
+
+      // Fetch active tasks
+      const { data: allTasks, error: tasksError } = await (supabase
+        .from('tasks') as any)
+        .select('*')
+        .eq('is_active', true);
+
+      if (allTasks) {
+        // Fetch user progress for these tasks
+        const { data: userProgress } = await (supabase
+          .from('user_tasks') as any)
+          .select('*')
+          .eq('user_id', user.id);
+
+        // Merge them
+        const mergedTasks = (allTasks as any[]).map(task => {
+          const progress = (userProgress as any[])?.find(p => p.task_id === task.id);
+          return {
+            ...task,
+            progress_count: progress?.progress_count || 0,
+            is_completed: progress?.is_completed || false,
+            is_claimed: progress?.is_claimed || false
+          };
+        });
+
+        // Let's do a little cheat: Complete profile task logic if missing 
+        // We know they have a profile if they are here. So let's auto-complete it client side if needed.
+        const profileTask = mergedTasks.find(t => t.required_action === 'complete_profile');
+        if (profileTask && !profileTask.is_completed) {
+          await (supabase.from('user_tasks') as any).upsert({
+            user_id: user.id,
+            task_id: profileTask.id,
+            progress_count: 1,
+            is_completed: true,
+            is_claimed: false
+          }, { onConflict: 'user_id,task_id,reset_at' } as any);
+          profileTask.is_completed = true;
+          profileTask.progress_count = 1;
+        }
+
+        setTasks(mergedTasks);
+      }
+    } catch (e) {
+      console.error('Error fetching earn points data:', e);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchUserData();
+  }, [user]);
+
+  const handleClaim = async (taskId: string, points: number) => {
+    if (!user || claimingId) return;
+    setClaimingId(taskId);
+
+    try {
+      await (supabase as any).rpc('claim_task_points', {
+        p_user_id: user.id,
+        p_task_id: taskId,
+        p_points: points
+      });
+
+      // Optimistic update locally
+      setPointsBalance(prev => prev + points);
+      setTasks(prev => prev.map(t =>
+        t.id === taskId ? { ...t, is_claimed: true } : t
+      ));
+    } catch (e) {
+      console.error("Failed to claim task", e);
+    } finally {
+      setClaimingId(null);
+    }
+  };
+
+  const dailyTasks = tasks.filter(t => t.task_type === 'daily' || t.task_type === 'one_time');
+  const weeklyTasks = tasks.filter(t => t.task_type === 'weekly');
 
   const getLevelTitle = () => {
     if (level >= 10) return 'Movie Master';
@@ -58,13 +133,13 @@ export default function EarnPointsScreen({ onClose, onRedeemPress }: EarnPointsS
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Top Navigation */}
       <View style={styles.topNav}>
         <TouchableOpacity style={styles.closeButton} onPress={onClose}>
           <MaterialIcons name="close" size={24} color="white" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.historyButton}>
+        <TouchableOpacity style={styles.historyButton} onPress={onHistoryPress}>
           <MaterialIcons name="history" size={16} color="#d1d5db" />
           <Text style={styles.historyText}>History</Text>
         </TouchableOpacity>
@@ -73,7 +148,7 @@ export default function EarnPointsScreen({ onClose, onRedeemPress }: EarnPointsS
       {/* Hero Section */}
       <View style={styles.heroContainer}>
         <ImageBackground
-          source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDGL_FMr5zWsZYNk9gb8nwrIN3rARUlf0y5lHT-MOI09CJpQzWitxbfYl2B7cAgbC8VTnlh5trqNHcAToyVTjGOzSMciG-Iyrge3w8ooiIYHpZ4uE1BA-xmSQgir-4YZMFKwGx9kn3l-QAyDz3DfehUX-exxSA7vXzGFzTBMaNi35qhK8V56rucvF64RLzy5Pmiz-K4cmP-JKla483qWgJesE7e7gCjue5JLkgeip1pV7fnrLWk_RoijxbQM1eT13-DIyuAt4QHnB1R' }}
+          source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDGL_FMr5zWsZYNk9gb8nwrIN3rARUlf0y5lHT-MOI09CJpQzWitxbfYl2B7cAgbC8VTnlh5trqNHcAToyVTjGOzSMciG-Iyrge3w8ooiIYHpZ4uE1BA-xmSQgir-4YZMFKwGx9kn3l-QAyDz3DfehUX-exxSA7vXzGFsTBMaNi35qhK8V56rucvF64RLzy5Pmiz-K4cmP-JKla483qWgJesE7e7gCjue5JLKgeip1pV7fnrLWk_RoijxbQM1eT13-DIyuAt4QHnB1R' }}
           style={styles.heroBackground}
           blurRadius={40}
         >
@@ -101,7 +176,7 @@ export default function EarnPointsScreen({ onClose, onRedeemPress }: EarnPointsS
         </ImageBackground>
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollContainer}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -119,61 +194,62 @@ export default function EarnPointsScreen({ onClose, onRedeemPress }: EarnPointsS
           </View>
 
           <View style={styles.tasksList}>
-            {/* Completed Task */}
-            <View style={[styles.taskCard, styles.taskCompleted]}>
-              <View style={styles.taskHeader}>
-                <View style={styles.taskLeft}>
-                  <View style={[styles.taskIcon, styles.taskIconActive]}>
-                    <MaterialIcons name="person" size={20} color="#9727e7" />
-                  </View>
-                  <View style={styles.taskInfo}>
-                    <Text style={styles.taskTitle}>Complete your profile</Text>
-                    <View style={styles.pointsRow2}>
-                      <MaterialIcons name="bolt" size={14} color="#fbbf24" />
-                      <Text style={styles.taskPoints}>+20 pts</Text>
+            {dailyTasks.map(task => {
+              const progressPercent = Math.min((task.progress_count / task.required_count) * 100, 100);
+              return (
+                <View key={task.id} style={[styles.taskCard, task.is_completed && !task.is_claimed && styles.taskCompleted]}>
+                  <View style={styles.taskHeader}>
+                    <View style={styles.taskLeft}>
+                      <View style={[styles.taskIcon, task.is_completed && styles.taskIconActive]}>
+                        <MaterialIcons name={task.icon_name || "star"} size={20} color={task.is_completed ? "#9727e7" : "#9ca3af"} />
+                      </View>
+                      <View style={styles.taskInfo}>
+                        <Text style={styles.taskTitle}>{task.title}</Text>
+                        <View style={styles.pointsRow2}>
+                          <MaterialIcons name="bolt" size={14} color="#fbbf24" />
+                          <Text style={styles.taskPoints}>+{task.points_reward} pts</Text>
+                        </View>
+                      </View>
                     </View>
-                  </View>
-                </View>
-                <TouchableOpacity style={styles.claimButton}>
-                  <Text style={styles.claimButtonText}>Claim</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: '100%' }]} />
-              </View>
-              <View style={styles.progressFooter}>
-                <Text style={styles.progressLabel}>Completed</Text>
-                <Text style={styles.progressValue}>100%</Text>
-              </View>
-            </View>
 
-            {/* Incomplete Task */}
-            <View style={styles.taskCard}>
-              <View style={styles.taskHeader}>
-                <View style={styles.taskLeft}>
-                  <View style={styles.taskIcon}>
-                    <MaterialIcons name="share" size={20} color="#6b7280" />
+                    {task.is_claimed ? (
+                      <View style={styles.claimedBadge}>
+                        <MaterialIcons name="check" size={12} color="#10b981" />
+                        <Text style={styles.claimedText}>Claimed</Text>
+                      </View>
+                    ) : task.is_completed ? (
+                      <TouchableOpacity
+                        style={styles.claimButton}
+                        onPress={() => handleClaim(task.id, task.points_reward)}
+                        disabled={claimingId === task.id}
+                      >
+                        <Text style={styles.claimButtonText}>{claimingId === task.id ? '...' : 'Claim'}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity style={styles.goButton}>
+                        <Text style={styles.goButtonText}>Go</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
-                  <View style={styles.taskInfo}>
-                    <Text style={styles.taskTitle}>Share a movie with a friend</Text>
-                    <View style={styles.pointsRow2}>
-                      <MaterialIcons name="bolt" size={14} color="rgba(251,191,36,0.8)" />
-                      <Text style={styles.taskPointsInactive}>+10 pts</Text>
-                    </View>
-                  </View>
+
+                  {!task.is_claimed && (
+                    <>
+                      <View style={styles.progressBarBg}>
+                        <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+                      </View>
+                      <View style={styles.progressFooter}>
+                        <Text style={styles.progressLabel}>{task.is_completed ? 'Completed' : 'In Progress'}</Text>
+                        <Text style={styles.progressValue}>{task.progress_count} / {task.required_count}</Text>
+                      </View>
+                    </>
+                  )}
                 </View>
-                <TouchableOpacity style={styles.goButton}>
-                  <Text style={styles.goButtonText}>Go</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: '0%' }]} />
-              </View>
-              <View style={styles.progressFooter}>
-                <Text style={styles.progressLabelInactive}>Not started</Text>
-                <Text style={styles.progressLabelInactive}>0/1</Text>
-              </View>
-            </View>
+              );
+            })}
+
+            {dailyTasks.length === 0 && (
+              <Text style={{ color: '#9ca3af', textAlign: 'center', marginVertical: 20 }}>No daily tasks available right now.</Text>
+            )}
           </View>
         </View>
 
@@ -182,69 +258,70 @@ export default function EarnPointsScreen({ onClose, onRedeemPress }: EarnPointsS
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <Text style={styles.sectionTitle}>Weekly Challenges</Text>
-              <MaterialIcons name="calendar-today" size={16} color="#9727e7" />
+              <View style={[styles.dot, { backgroundColor: '#fbbf24' }]} />
             </View>
-            <View style={styles.resetBadge}>
-              <Text style={styles.resetText}>Ends Sunday</Text>
+            <View style={[styles.resetBadge, { backgroundColor: 'rgba(251, 191, 36, 0.1)' }]}>
+              <Text style={[styles.resetText, { color: '#fbbf24' }]}>Ends in 3 days</Text>
             </View>
           </View>
 
           <View style={styles.tasksList}>
-            {/* In Progress Task */}
-            <View style={styles.taskCard}>
-              <View style={styles.taskHeader}>
-                <View style={styles.taskLeft}>
-                  <View style={styles.taskIcon}>
-                    <MaterialIcons name="movie" size={20} color="#6b7280" />
-                  </View>
-                  <View style={styles.taskInfo}>
-                    <Text style={styles.taskTitle}>Watch 3 movies this week</Text>
-                    <View style={styles.pointsRow2}>
-                      <MaterialIcons name="bolt" size={14} color="rgba(251,191,36,0.8)" />
-                      <Text style={styles.taskPointsInactive}>+50 pts</Text>
+            {weeklyTasks.map(task => {
+              const progressPercent = Math.min((task.progress_count / task.required_count) * 100, 100);
+              return (
+                <View key={task.id} style={styles.taskCard}>
+                  <View style={styles.taskHeader}>
+                    <View style={styles.taskLeft}>
+                      <View style={styles.taskIcon}>
+                        <MaterialIcons name={task.icon_name || "movie"} size={20} color="#9ca3af" />
+                      </View>
+                      <View style={styles.taskInfo}>
+                        <Text style={styles.taskTitle}>{task.title}</Text>
+                        <View style={styles.pointsRow2}>
+                          <MaterialIcons name="local-activity" size={14} color="#f43f5e" />
+                          <Text style={[styles.taskPoints, { color: '#f43f5e' }]}>+{task.points_reward} pts</Text>
+                        </View>
+                      </View>
                     </View>
-                  </View>
-                </View>
-                <TouchableOpacity style={styles.goButton}>
-                  <Text style={styles.goButtonText}>Go</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: '33%' }]} />
-              </View>
-              <View style={styles.progressFooter}>
-                <Text style={styles.progressLabel}>In Progress</Text>
-                <Text style={styles.progressValue}>1/3 watched</Text>
-              </View>
-            </View>
 
-            {/* Locked Task */}
-            <View style={[styles.taskCard, styles.taskLocked]}>
-              <View style={styles.taskHeader}>
-                <View style={styles.taskLeft}>
-                  <View style={styles.taskIcon}>
-                    <MaterialIcons name="rate-review" size={20} color="#6b7280" />
+                    {task.is_claimed ? (
+                      <View style={styles.claimedBadge}>
+                        <MaterialIcons name="check" size={12} color="#10b981" />
+                        <Text style={styles.claimedText}>Claimed</Text>
+                      </View>
+                    ) : task.is_completed ? (
+                      <TouchableOpacity
+                        style={styles.claimButton}
+                        onPress={() => handleClaim(task.id, task.points_reward)}
+                        disabled={claimingId === task.id}
+                      >
+                        <Text style={styles.claimButtonText}>{claimingId === task.id ? '...' : 'Claim'}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity style={styles.goButton}>
+                        <Text style={styles.goButtonText}>Go</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
-                  <View style={styles.taskInfo}>
-                    <Text style={styles.taskTitle}>Review a movie</Text>
-                    <View style={styles.pointsRow2}>
-                      <MaterialIcons name="bolt" size={14} color="rgba(251,191,36,0.8)" />
-                      <Text style={styles.taskPointsInactive}>+30 pts</Text>
-                    </View>
-                  </View>
+
+                  {!task.is_claimed && (
+                    <>
+                      <View style={styles.progressBarBg}>
+                        <View style={[styles.progressBarFill, { width: `${progressPercent}%`, backgroundColor: '#fbbf24' }]} />
+                      </View>
+                      <View style={styles.progressFooter}>
+                        <Text style={styles.progressLabel}>{task.is_completed ? 'Completed' : 'In Progress'}</Text>
+                        <Text style={styles.progressValue}>{task.progress_count} / {task.required_count}</Text>
+                      </View>
+                    </>
+                  )}
                 </View>
-                <View style={styles.lockedIcon}>
-                  <MaterialIcons name="lock" size={18} color="#4b5563" />
-                </View>
-              </View>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: '0%' }]} />
-              </View>
-              <View style={styles.progressFooter}>
-                <Text style={styles.progressLabelInactive}>Locked (Complete previous first)</Text>
-                <Text style={styles.progressLabelInactive}>0/1</Text>
-              </View>
-            </View>
+              );
+            })}
+
+            {weeklyTasks.length === 0 && (
+              <Text style={{ color: '#9ca3af', textAlign: 'center', marginVertical: 20 }}>No weekly challenges available.</Text>
+            )}
           </View>
         </View>
 
@@ -603,5 +680,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: 'white',
+  },
+  claimedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  claimedText: {
+    color: '#10b981',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
   },
 });

@@ -6,6 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PortraitCard } from '../components/MovieCard';
 import { searchMulti, getTrendingMovies, getTrendingTV, getPosterUrl, getProfileUrl } from '../services/tmdb';
 import { TMDBMovie, TMDBTVShow, TMDBPerson } from '../types/tmdb';
+import { useSearchHistory } from '../hooks/useSearchHistory';
+import { getCustomMovies, CustomMovie } from '../services/customMovies';
 
 const { width } = Dimensions.get('window');
 
@@ -16,33 +18,39 @@ const CARD_WIDTH = (width - GRID_PADDING - GRID_GAP * 2) / 3;
 
 const FILTERS = ['All', 'Movies', 'TV Shows', 'People'];
 
-type SearchResult = TMDBMovie | TMDBTVShow | TMDBPerson;
+type SearchResult = TMDBMovie | TMDBTVShow | TMDBPerson | CustomMovie;
 
 interface SearchScreenProps {
   onMoviePress?: (movieId: number) => void;
   onTvPress?: (tvId: number) => void;
   onActorPress?: (actorId: number) => void;
+  onCustomMoviePress?: (customMovieId: number) => void;
 }
 
-export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: SearchScreenProps) {
+export default function SearchScreen({ onMoviePress, onTvPress, onActorPress, onCustomMoviePress }: SearchScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState('All');
   const [trendingMovies, setTrendingMovies] = useState<TMDBMovie[]>([]);
   const [trendingTV, setTrendingTV] = useState<TMDBTVShow[]>([]);
+  const [allCustomMovies, setAllCustomMovies] = useState<CustomMovie[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
+
+  const { history, addSearchTerm, removeSearchTerm, clearHistory } = useSearchHistory();
 
   // Fetch trending content on mount
   useEffect(() => {
     const fetchTrending = async () => {
       try {
-        const [movies, tv] = await Promise.all([
+        const [movies, tv, custom] = await Promise.all([
           getTrendingMovies('day'),
           getTrendingTV('day'),
+          getCustomMovies(),
         ]);
         setTrendingMovies(movies.slice(0, 6));
         setTrendingTV(tv.slice(0, 6));
+        setAllCustomMovies(custom);
       } catch (error) {
         console.error('Error fetching trending:', error);
       } finally {
@@ -62,8 +70,16 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
     const timeoutId = setTimeout(async () => {
       setLoading(true);
       try {
+        // Search TMDB
         const response = await searchMulti(searchQuery);
-        setResults(response.results);
+
+        // Search local Custom Movies
+        const queryLower = searchQuery.toLowerCase();
+        const customResults = allCustomMovies.filter(cm =>
+          cm.title.toLowerCase().includes(queryLower)
+        );
+
+        setResults([...customResults, ...response.results]);
       } catch (error) {
         console.error('Search error:', error);
       } finally {
@@ -75,22 +91,28 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
   }, [searchQuery]);
 
   // Local type guards that work with any type
-  const isMovie = (item: any): item is TMDBMovie => 'title' in item && !('known_for_department' in item);
+  const isMovie = (item: any): item is TMDBMovie => 'title' in item && !('known_for_department' in item) && !('watch_link' in item);
   const isTv = (item: any): item is TMDBTVShow => 'name' in item && 'first_air_date' in item && !('known_for_department' in item);
   const isPerson = (item: any): item is TMDBPerson => 'known_for_department' in item;
+  const isCustomMovie = (item: any): item is CustomMovie => 'watch_link' in item;
 
   // Filter results by type
   const filteredResults = results.filter((item) => {
     if (activeFilter === 'All') return true;
-    if (activeFilter === 'Movies') return isMovie(item);
+    if (activeFilter === 'Movies') return isMovie(item) || isCustomMovie(item);
     if (activeFilter === 'TV Shows') return isTv(item);
     if (activeFilter === 'People') return isPerson(item);
     return true;
   });
 
   const handleItemPress = (item: SearchResult) => {
+    // Save to history when a result is explicitly clicked
+    addSearchTerm(searchQuery);
+
     if (isMovie(item)) {
       onMoviePress?.(item.id);
+    } else if (isCustomMovie(item)) {
+      onCustomMoviePress?.(item.id);
     } else if (isTv(item)) {
       onTvPress?.(item.id);
     } else if (isPerson(item)) {
@@ -100,6 +122,7 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
 
   const getItemTitle = (item: SearchResult) => {
     if (isMovie(item)) return item.title;
+    if (isCustomMovie(item)) return item.title;
     if (isTv(item)) return item.name;
     if (isPerson(item)) return item.name;
     return '';
@@ -107,17 +130,19 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
 
   const getItemImage = (item: SearchResult) => {
     if (isPerson(item)) return getProfileUrl(item.profile_path);
+    if (isCustomMovie(item)) return item.poster_url || '';
     return getPosterUrl((item as TMDBMovie | TMDBTVShow).poster_path);
   };
 
   const getItemYear = (item: SearchResult) => {
     if (isMovie(item)) return item.release_date?.split('-')[0] || '';
+    if (isCustomMovie(item)) return item.release_date ? new Date(item.release_date).getFullYear().toString() : '';
     if (isTv(item)) return item.first_air_date?.split('-')[0] || '';
     return '';
   };
 
   const getItemRating = (item: SearchResult) => {
-    if (isPerson(item)) return '';
+    if (isPerson(item) || isCustomMovie(item)) return '';
     return (item as TMDBMovie | TMDBTVShow).vote_average?.toFixed(1) || '';
   };
 
@@ -143,12 +168,17 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
               <View style={styles.searchIcon}>
                 <MaterialIcons name="search" size={24} color="#9ca3af" />
               </View>
-              <TextInput 
-                style={styles.input} 
-                placeholder="Search for movies, TV shows, or people..." 
+              <TextInput
+                style={styles.input}
+                placeholder="Search for movies, TV shows, or people..."
                 placeholderTextColor="#6b7280"
                 value={searchQuery}
                 onChangeText={setSearchQuery}
+                onSubmitEditing={() => {
+                  if (searchQuery.trim()) {
+                    addSearchTerm(searchQuery);
+                  }
+                }}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
@@ -163,8 +193,8 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
             {searchQuery.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsContainer}>
                 {FILTERS.map((filter) => (
-                  <TouchableOpacity 
-                    key={filter} 
+                  <TouchableOpacity
+                    key={filter}
                     style={[styles.chip, activeFilter === filter && styles.activeChip]}
                     onPress={() => setActiveFilter(filter)}
                   >
@@ -180,7 +210,7 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         {/* Loading State */}
         {loading && (
           <View style={styles.loadingContainer}>
@@ -221,9 +251,44 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
           </View>
         )}
 
-        {/* Default Content - Trending */}
+        {/* Default Content - Trending & History */}
         {!loading && searchQuery.length === 0 && (
           <>
+            {/* Recent Searches */}
+            {history.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Recent Searches</Text>
+                  <TouchableOpacity onPress={clearHistory}>
+                    <Text style={styles.clearHistoryText}>Clear All</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.trendingList}>
+                  {history.map((item, index) => (
+                    <TouchableOpacity
+                      key={`history-${index}`}
+                      style={styles.trendingItem}
+                      onPress={() => {
+                        handleTrendingSearch(item);
+                        addSearchTerm(item); // bumps it to the top
+                      }}
+                    >
+                      <View style={[styles.trendingIcon, { backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }]}>
+                        <MaterialIcons name="history" size={20} color="#9ca3af" />
+                      </View>
+                      <Text style={[styles.trendingText, { color: '#d1d5db' }]} numberOfLines={1}>{item}</Text>
+                      <TouchableOpacity
+                        style={styles.historyRemoveBtn}
+                        onPress={() => removeSearchTerm(item)}
+                      >
+                        <MaterialIcons name="close" size={16} color="#6b7280" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
             {/* Trending Searches */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Trending Searches</Text>
@@ -232,8 +297,8 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
                   <ActivityIndicator size="small" color="#9727e7" style={{ marginVertical: 20 }} />
                 ) : (
                   trendingSearches.map((item, index) => (
-                    <TouchableOpacity 
-                      key={index} 
+                    <TouchableOpacity
+                      key={index}
                       style={styles.trendingItem}
                       onPress={() => handleTrendingSearch(item)}
                     >
@@ -253,9 +318,9 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Trending Movies</Text>
               </View>
-              
+
               <View style={styles.grid}>
-                {(initialLoading ? [1,2,3,4,5,6] : trendingMovies).map((item, index) => (
+                {(initialLoading ? [1, 2, 3, 4, 5, 6] : trendingMovies).map((item, index) => (
                   initialLoading ? (
                     <View key={index} style={[styles.gridItemWrapper, styles.skeletonCard]} />
                   ) : (
@@ -280,9 +345,9 @@ export default function SearchScreen({ onMoviePress, onTvPress, onActorPress }: 
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Trending TV Shows</Text>
               </View>
-              
+
               <View style={styles.grid}>
-                {(initialLoading ? [1,2,3,4,5,6] : trendingTV).map((item, index) => (
+                {(initialLoading ? [1, 2, 3, 4, 5, 6] : trendingTV).map((item, index) => (
                   initialLoading ? (
                     <View key={index} style={[styles.gridItemWrapper, styles.skeletonCard]} />
                   ) : (
@@ -397,6 +462,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontFamily: 'Manrope_700Bold',
   },
+  clearHistoryText: {
+    color: '#9727e7',
+    fontSize: 14,
+    fontFamily: 'Manrope_600SemiBold',
+  },
   trendingList: {
     gap: 4,
   },
@@ -420,6 +490,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: 'white',
     fontFamily: 'Manrope_500Medium',
+  },
+  historyRemoveBtn: {
+    padding: 8,
+    marginRight: -8, // make touch target wider
   },
   grid: {
     flexDirection: 'row',

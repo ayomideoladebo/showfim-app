@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as FileSystem from 'expo-file-system/legacy';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -13,12 +14,86 @@ interface SettingsScreenProps {
 export default function SettingsScreen({ onBack, onLogout, onAccountDetailsPress }: SettingsScreenProps) {
   const [darkMode, setDarkMode] = useState(true);
   const [notifications, setNotifications] = useState(true);
-  const [wifiOnly, setWifiOnly] = useState(false);
+  const [cacheSize, setCacheSize] = useState('0 MB');
+  const [clearingCache, setClearingCache] = useState(false);
+
+  React.useEffect(() => {
+    calculateCacheSize();
+  }, []);
+
+  const calculateCacheSize = async () => {
+    try {
+      const folderPaths = [FileSystem.cacheDirectory, FileSystem.documentDirectory];
+      let totalSize = 0;
+
+      for (const dir of folderPaths) {
+        if (!dir) continue;
+        const info = await FileSystem.getInfoAsync(dir);
+        if (info.exists && info.isDirectory) {
+          const files = await FileSystem.readDirectoryAsync(dir);
+          for (const file of files) {
+            // Ignore our custom downloads directory from this "Clear Cache" logic 
+            // so users don't accidentally lose offline movies!
+            if (file === 'showfim_downloads') continue;
+
+            const fileInfo = await FileSystem.getInfoAsync(dir + file);
+            if (fileInfo.exists && !fileInfo.isDirectory) {
+              totalSize += fileInfo.size || 0;
+            }
+          }
+        }
+      }
+
+      const sizeInMB = (totalSize / (1024 * 1024)).toFixed(1);
+      setCacheSize(`${sizeInMB} MB`);
+    } catch (e) {
+      console.error('Error calculating cache size:', e);
+      setCacheSize('Unknown');
+    }
+  };
+
+  const handleClearCache = async () => {
+    Alert.alert(
+      'Clear Cache',
+      'Are you sure you want to clear the app cache? This will not delete your offline downloads or account settings.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            setClearingCache(true);
+            try {
+              const folderPaths = [FileSystem.cacheDirectory, FileSystem.documentDirectory];
+              for (const dir of folderPaths) {
+                if (!dir) continue;
+                const info = await FileSystem.getInfoAsync(dir);
+                if (info.exists && info.isDirectory) {
+                  const files = await FileSystem.readDirectoryAsync(dir);
+                  for (const file of files) {
+                    if (file === 'downloads' || file === 'SQLite') continue; // Protect downloads and DB
+                    await FileSystem.deleteAsync(dir + file, { idempotent: true });
+                  }
+                }
+              }
+              await calculateCacheSize();
+              Alert.alert('Success', 'Cache cleared successfully.');
+            } catch (e) {
+              console.error('Failed to clear cache:', e);
+              Alert.alert('Error', 'Failed to clear some cached files.');
+            } finally {
+              setClearingCache(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Sticky Header */}
       <View style={styles.header}>
         <SafeAreaView edges={['top']} style={styles.headerContent}>
@@ -30,8 +105,8 @@ export default function SettingsScreen({ onBack, onLogout, onAccountDetailsPress
         </SafeAreaView>
       </View>
 
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Preferences Section */}
@@ -78,35 +153,11 @@ export default function SettingsScreen({ onBack, onLogout, onAccountDetailsPress
           </View>
         </View>
 
-        {/* Downloads Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>DOWNLOADS</Text>
-          <View style={styles.settingsCard}>
-            <View style={styles.settingItem}>
-              <View style={styles.settingLeft}>
-                <View style={[styles.iconBg, styles.iconBgGray]}>
-                  <MaterialIcons name="wifi" size={20} color="#9ca3af" />
-                </View>
-                <View style={styles.settingText}>
-                  <Text style={styles.settingTitle}>Wi-Fi Only</Text>
-                  <Text style={styles.settingSubtitle}>Download only on Wi-Fi</Text>
-                </View>
-              </View>
-              <Switch
-                value={wifiOnly}
-                onValueChange={setWifiOnly}
-                trackColor={{ false: 'rgba(255,255,255,0.1)', true: '#9727e7' }}
-                thumbColor="white"
-              />
-            </View>
-          </View>
-        </View>
-
         {/* Data & Storage Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>DATA & STORAGE</Text>
           <View style={styles.settingsCard}>
-            <TouchableOpacity style={styles.settingItem}>
+            <TouchableOpacity style={styles.settingItem} onPress={handleClearCache} disabled={clearingCache}>
               <View style={styles.settingLeft}>
                 <View style={[styles.iconBg, styles.iconBgGray]}>
                   <MaterialIcons name="delete-outline" size={20} color="#9ca3af" />
@@ -117,8 +168,14 @@ export default function SettingsScreen({ onBack, onLogout, onAccountDetailsPress
                 </View>
               </View>
               <View style={styles.settingRight}>
-                <Text style={styles.cacheSize}>128 MB</Text>
-                <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
+                {clearingCache ? (
+                  <ActivityIndicator size="small" color="#9727e7" />
+                ) : (
+                  <>
+                    <Text style={styles.cacheSize}>{cacheSize}</Text>
+                    <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
+                  </>
+                )}
               </View>
             </TouchableOpacity>
           </View>
@@ -141,7 +198,7 @@ export default function SettingsScreen({ onBack, onLogout, onAccountDetailsPress
         </View>
 
         {/* Log Out Button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.logoutButton}
           onPress={onLogout}
         >

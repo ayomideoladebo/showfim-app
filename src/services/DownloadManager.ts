@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, AppStateStatus } from 'react-native';
 
 const DOWNLOADS_KEY = 'showfim_downloads_v1';
 // @ts-ignore
@@ -23,15 +24,44 @@ export interface DownloadItem {
     status: 'downloading' | 'paused' | 'completed' | 'failed';
     date: string;
     resumeData?: string; // Expo Resumable data
+    downloadSpeed?: string; // Track network speed
 }
 
 class DownloadManager {
     private downloads: DownloadItem[] = [];
     private downloadResumables: Record<string, any> = {};
     private listeners: ((downloads: DownloadItem[]) => void)[] = [];
+    private appState: AppStateStatus = AppState.currentState;
+    private lastProgressTime: Record<string, number> = {};
+    private lastBytesWritten: Record<string, number> = {};
 
     constructor() {
         this.init();
+
+        // Listen to app state changes to pause downloads in background
+        AppState.addEventListener('change', this.handleAppStateChange);
+    }
+
+    private handleAppStateChange = (nextAppState: AppStateStatus) => {
+        if (
+            this.appState.match(/active/) &&
+            (nextAppState === 'background' || nextAppState === 'inactive')
+        ) {
+            console.log('App going to background, pausing active downloads');
+            this.pauseAllActiveDownloads();
+        }
+        this.appState = nextAppState;
+    };
+
+    private async pauseAllActiveDownloads() {
+        const activeIds = Object.keys(this.downloadResumables);
+        for (const id of activeIds) {
+            try {
+                await this.pauseDownload(id);
+            } catch (err) {
+                console.warn(`Failed to pause download ${id} on background:`, err);
+            }
+        }
     }
 
     private async init() {
@@ -100,6 +130,16 @@ class DownloadManager {
     public async startDownload(
         item: Omit<DownloadItem, 'status' | 'progress' | 'date' | 'uri' | 'subtitleUri' | 'resumeData'>
     ) {
+        try {
+            // Ensure directory exists right before downloading just in case cache was cleared mid-session
+            const dirInfo = await FileSystem.getInfoAsync(DOWNLOAD_DIR);
+            if (!dirInfo.exists) {
+                await FileSystem.makeDirectoryAsync(DOWNLOAD_DIR, { intermediates: true });
+            }
+        } catch (e) {
+            console.error('Failed to ensure download directory', e);
+        }
+
         const existing = this.downloads.find(d => d.id === item.id);
         if (existing && existing.status === 'completed') {
             console.log('Already downloaded:', item.title);
@@ -111,8 +151,9 @@ class DownloadManager {
         let localSubtitleUri: string | undefined = undefined;
 
         if (item.subtitleUrl) {
-            // Check original subtitle extension to handle .srt or .vtt correctly
-            const ext = item.subtitleUrl.split('?')[0].split('.').pop() || 'vtt';
+            // Fallback to vtt since our proxy returns vtt format or use simple matches
+            const rawExt = item.subtitleUrl.split('?')[0].split('.').pop() || '';
+            const ext = /^[a-zA-Z0-9]+$/.test(rawExt) && rawExt.length <= 4 ? rawExt : 'vtt';
             localSubtitleUri = DOWNLOAD_DIR + `${item.id}_sub.${ext}`;
         }
 
@@ -144,7 +185,24 @@ class DownloadManager {
                 const total = progress.totalBytesExpectedToWrite;
                 const written = progress.totalBytesWritten;
                 const percent = total > 0 ? (written / total) : 0;
-                this.updateProgress(item.id, Math.max(0, percent));
+
+                // Calculate speed
+                const now = Date.now();
+                const lastTime = this.lastProgressTime[item.id] || now;
+                const lastWritten = this.lastBytesWritten[item.id] || written;
+                let speedStr = this.downloads.find(d => d.id === item.id)?.downloadSpeed || '';
+
+                if (now - lastTime >= 1000) {
+                    const bytesPerSec = (written - lastWritten) / ((now - lastTime) / 1000);
+                    speedStr = this.formatBytes(bytesPerSec) + '/s';
+                    this.lastProgressTime[item.id] = now;
+                    this.lastBytesWritten[item.id] = written;
+                } else if (!this.lastProgressTime[item.id]) {
+                    this.lastProgressTime[item.id] = now;
+                    this.lastBytesWritten[item.id] = written;
+                }
+
+                this.updateProgress(item.id, Math.max(0, percent), speedStr);
             }
         );
 
@@ -218,7 +276,24 @@ class DownloadManager {
                             const total = progress.totalBytesExpectedToWrite;
                             const written = progress.totalBytesWritten;
                             const percent = total > 0 ? (written / total) : 0;
-                            this.updateProgress(id, Math.max(0, percent));
+
+                            // Calculate speed
+                            const now = Date.now();
+                            const lastTime = this.lastProgressTime[id] || now;
+                            const lastWritten = this.lastBytesWritten[id] || written;
+                            let speedStr = this.downloads.find(d => d.id === id)?.downloadSpeed || '';
+
+                            if (now - lastTime >= 1000) {
+                                const bytesPerSec = (written - lastWritten) / ((now - lastTime) / 1000);
+                                speedStr = this.formatBytes(bytesPerSec) + '/s';
+                                this.lastProgressTime[id] = now;
+                                this.lastBytesWritten[id] = written;
+                            } else if (!this.lastProgressTime[id]) {
+                                this.lastProgressTime[id] = now;
+                                this.lastBytesWritten[id] = written;
+                            }
+
+                            this.updateProgress(id, Math.max(0, percent), speedStr);
                         },
                         savedData.resumeData
                     );
@@ -238,7 +313,24 @@ class DownloadManager {
                     const total = progress.totalBytesExpectedToWrite;
                     const written = progress.totalBytesWritten;
                     const percent = total > 0 ? (written / total) : 0;
-                    this.updateProgress(id, Math.max(0, percent));
+
+                    // Calculate speed
+                    const now = Date.now();
+                    const lastTime = this.lastProgressTime[id] || now;
+                    const lastWritten = this.lastBytesWritten[id] || written;
+                    let speedStr = this.downloads.find(d => d.id === id)?.downloadSpeed || '';
+
+                    if (now - lastTime >= 1000) {
+                        const bytesPerSec = (written - lastWritten) / ((now - lastTime) / 1000);
+                        speedStr = this.formatBytes(bytesPerSec) + '/s';
+                        this.lastProgressTime[id] = now;
+                        this.lastBytesWritten[id] = written;
+                    } else if (!this.lastProgressTime[id]) {
+                        this.lastProgressTime[id] = now;
+                        this.lastBytesWritten[id] = written;
+                    }
+
+                    this.updateProgress(id, Math.max(0, percent), speedStr);
                 }
             );
         }
@@ -301,12 +393,21 @@ class DownloadManager {
 
     // --- Helpers ---
 
+    private formatBytes(bytes: number, decimals = 1) {
+        if (!+bytes) return '0 B';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
     private lastPersistTime: number = 0;
     private progressUpdateCount: number = 0;
 
-    private updateProgress(id: string, progress: number) {
+    private updateProgress(id: string, progress: number, downloadSpeed?: string) {
         this.downloads = this.downloads.map(d =>
-            d.id === id ? { ...d, progress: progress * 100 } : d
+            d.id === id ? { ...d, progress: progress * 100, downloadSpeed: downloadSpeed || d.downloadSpeed } : d
         );
         this.notifyListeners();
 

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "showfim-app",
+    "name": "Showfim",
     "slug": "showfim-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -28,7 +28,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {

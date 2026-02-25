@@ -28,6 +28,10 @@ interface DownloadModalProps {
   title: string;
   posterUrl: string;
   loading?: boolean;
+  contentId?: string;
+  type?: 'movie' | 'tv';
+  season?: number;
+  episode?: number;
 }
 
 type TabType = 'video' | 'subtitle';
@@ -40,6 +44,10 @@ export default function DownloadModal({
   title,
   posterUrl,
   loading = false,
+  contentId,
+  type = 'movie',
+  season,
+  episode,
 }: DownloadModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('video');
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
@@ -59,14 +67,14 @@ export default function DownloadModal({
     let url = '';
     let quality = 'unknown';
     let size = 'unknown';
-    let type: 'video' | 'subtitle' = 'video';
+    let dlType: 'video' | 'subtitle' = 'video';
     let subtitleUrlToDownload: string | undefined = undefined;
 
     if (activeTab === 'video' && selectedSource) {
       url = selectedSource.downloadUrl || selectedSource.url;
       quality = selectedSource.resolution + 'p';
       size = selectedSource.size;
-      type = 'video';
+      dlType = 'video';
 
       // Automatically find English subtitles to download with video
       const englishSub = subtitles.find(
@@ -79,17 +87,23 @@ export default function DownloadModal({
       url = selectedSubtitle.url;
       quality = selectedSubtitle.lan;
       size = '10kb'; // Approximate
-      type = 'subtitle';
+      dlType = 'subtitle';
     }
 
     if (url) {
-      const id = `${title.replace(/\\s+/g, '_')}_${quality}`; // Simple ID generation
+      let id = `${title.replace(/\s+/g, '_')}_${quality}`;
+      if (type === 'tv' && contentId && season !== undefined && episode !== undefined) {
+        id = `${contentId}_${season}_${episode}_${quality}`;
+      }
+
       startDownload({
         id,
-        contentId: id, // Mapping to same for now, ideally pass movieId
+        contentId: contentId || id,
         title,
         posterUrl,
-        type: 'movie', // Default to movie, need logic for TV later
+        type,
+        season,
+        episode,
         quality,
         remoteUrl: url,
         size,

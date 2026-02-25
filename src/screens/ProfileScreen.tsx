@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Dimensions, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -43,22 +43,17 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
   const { user, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
-  
+
   // Get real counts
   const { watchlist } = useWatchlist();
   const { downloads } = useDownloads();
 
-  useEffect(() => {
-    if (user) {
-      fetchProfile();
-    } else {
-      setLoadingProfile(false);
-    }
-  }, [user]);
-
   const fetchProfile = async () => {
-    if (!user) return;
-    
+    if (!user) {
+      setLoadingProfile(false);
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -90,6 +85,10 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
       setLoadingProfile(false);
     }
   };
+
+  useEffect(() => {
+    fetchProfile();
+  }, [user]);
 
   // Format member since year
   const getMemberYear = () => {
@@ -159,7 +158,7 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
           {/* Benefits Section */}
           <View style={styles.benefitsSection}>
             <Text style={styles.benefitsSectionTitle}>Member Benefits</Text>
-            
+
             <View style={styles.benefitCard}>
               <View style={[styles.benefitIcon, { backgroundColor: 'rgba(168, 85, 247, 0.1)' }]}>
                 <MaterialIcons name="bookmark-border" size={24} color="#a855f7" />
@@ -197,7 +196,7 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
               <MaterialIcons name="login" size={20} color="white" />
               <Text style={styles.signInButtonText}>Sign In</Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity style={styles.createAccountButton} onPress={onSignUpPress}>
               <MaterialIcons name="person-add" size={20} color="#9727e7" />
               <Text style={styles.createAccountButtonText}>Create Account</Text>
@@ -217,13 +216,13 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Sticky Header */}
       <View style={styles.header}>
         <SafeAreaView edges={['top']} style={styles.headerContent}>
           <TouchableOpacity style={styles.iconBtn}>
-             {/* Use transparent placeholder for alignment if no back button needed, or just left align */}
-             {/* <MaterialIcons name="arrow-back" size={24} color="#9ca3af" /> */}
+            {/* Use transparent placeholder for alignment if no back button needed, or just left align */}
+            {/* <MaterialIcons name="arrow-back" size={24} color="#9ca3af" /> */}
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Profile</Text>
           <TouchableOpacity style={styles.iconBtn} onPress={onSettingsPress}>
@@ -233,34 +232,34 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         {/* Hero Section */}
         <View style={styles.heroSection}>
-          
+
           <View style={styles.avatarContainer}>
-             <LinearGradient
-               colors={['#6614b8', '#2a2a35']}
-               start={{ x: 0, y: 1 }}
-               end={{ x: 1, y: 0 }}
-               style={styles.avatarGradient}
-             >
-                <Image 
-                  source={{ uri: getAvatarUrl() }}
-                  style={styles.avatarImage}
-                />
-             </LinearGradient>
+            <LinearGradient
+              colors={['#6614b8', '#2a2a35']}
+              start={{ x: 0, y: 1 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.avatarGradient}
+            >
+              <Image
+                source={{ uri: getAvatarUrl() }}
+                style={styles.avatarImage}
+              />
+            </LinearGradient>
           </View>
-          
+
           {/* Level Badge - Positioned below avatar */}
           <View style={styles.levelBadge}>
-             <MaterialIcons name="star" size={14} color="white" />
-             <Text style={styles.levelText}>Level {profile?.level || 1}</Text>
+            <MaterialIcons name="star" size={14} color="white" />
+            <Text style={styles.levelText}>Level {profile?.level || 1}</Text>
           </View>
 
           <View style={styles.userInfo}>
-             <Text style={styles.userName}>{getDisplayName()}</Text>
-             {/* Show PRO badge only if user has premium - for now hide or show based on some condition */}
-             {/* <View style={styles.proBadge}>
+            <Text style={styles.userName}>{getDisplayName()}</Text>
+            {/* Show PRO badge only if user has premium - for now hide or show based on some condition */}
+            {/* <View style={styles.proBadge}>
                 <Text style={styles.proText}>PRO</Text>
              </View> */}
           </View>
@@ -269,137 +268,137 @@ export default function ProfileScreen({ onWatchlistPress, onDownloadsPress, onSe
 
         {/* Gamification Bar */}
         <View style={styles.section}>
-           <View style={styles.progressHeader}>
-              <Text style={styles.progressTitle}>PROGRESS TO LEVEL {(profile?.level || 1) + 1}</Text>
-              <Text style={styles.progressValue}>{profile?.xp || 0} / {getXpForNextLevel()} XP</Text>
-           </View>
-           <View style={styles.progressBarBg}>
-              <LinearGradient
-                 colors={['#6614b8', '#a855f7']}
-                 start={{ x: 0, y: 0 }}
-                 end={{ x: 1, y: 0 }}
-                 style={[styles.progressBarFill, { width: `${getXpProgress()}%` }]}
-              />
-           </View>
-           <Text style={styles.nextReward}>
-              {(profile?.xp || 0) === 0 ? 'Start watching to earn rewards!' : 'Keep going to level up!'}
-           </Text>
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressTitle}>PROGRESS TO LEVEL {(profile?.level || 1) + 1}</Text>
+            <Text style={styles.progressValue}>{profile?.xp || 0} / {getXpForNextLevel()} XP</Text>
+          </View>
+          <View style={styles.progressBarBg}>
+            <LinearGradient
+              colors={['#6614b8', '#a855f7']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={[styles.progressBarFill, { width: `${getXpProgress()}%` }]}
+            />
+          </View>
+          <Text style={styles.nextReward}>
+            {(profile?.xp || 0) === 0 ? 'Start watching to earn rewards!' : 'Keep going to level up!'}
+          </Text>
         </View>
 
         {/* Stats Dashboard */}
         <View style={[styles.section, styles.statsGrid]}>
-           <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{profile?.movies_watched || 0}</Text>
-              <Text style={styles.statLabel}>MOVIES WATCHED</Text>
-           </View>
-           <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{profile?.points_earned || 0}</Text>
-              <Text style={styles.statLabel}>POINTS EARNED</Text>
-           </View>
-           <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{profile?.badges || 0}</Text>
-              <Text style={styles.statLabel}>BADGES</Text>
-           </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>{profile?.movies_watched || 0}</Text>
+            <Text style={styles.statLabel}>MOVIES WATCHED</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>{profile?.points_earned || 0}</Text>
+            <Text style={styles.statLabel}>POINTS EARNED</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>{profile?.badges || 0}</Text>
+            <Text style={styles.statLabel}>BADGES</Text>
+          </View>
         </View>
 
         {/* Quick Links */}
         <View style={styles.section}>
-           <Text style={styles.sectionHeaderTitle}>Quick Links</Text>
-           <View style={styles.linksGrid}>
-              
-              <TouchableOpacity 
-                style={styles.linkCard} 
-                activeOpacity={0.7}
-                onPress={onWatchlistPress}
-              >
-                 <View style={styles.linkIconBg}>
-                    <MaterialIcons name="bookmark" size={24} color="#d8b4fe" />
-                 </View>
-                 <View>
-                    <Text style={styles.linkTitle}>My Watchlist</Text>
-                    <Text style={styles.linkSubtitle}>{watchlist.length} item{watchlist.length !== 1 ? 's' : ''}</Text>
-                 </View>
-              </TouchableOpacity>
+          <Text style={styles.sectionHeaderTitle}>Quick Links</Text>
+          <View style={styles.linksGrid}>
 
-              <TouchableOpacity 
-                style={styles.linkCard} 
-                activeOpacity={0.7}
-                onPress={onDownloadsPress}
-              >
-                 <View style={styles.linkIconBg}>
-                    <MaterialIcons name="download" size={24} color="#93c5fd" />
-                 </View>
-                 <View>
-                    <Text style={styles.linkTitle}>My Downloads</Text>
-                    <Text style={styles.linkSubtitle}>{downloads.length} download{downloads.length !== 1 ? 's' : ''}</Text>
-                 </View>
-              </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.linkCard}
+              activeOpacity={0.7}
+              onPress={onWatchlistPress}
+            >
+              <View style={styles.linkIconBg}>
+                <MaterialIcons name="bookmark" size={24} color="#d8b4fe" />
+              </View>
+              <View>
+                <Text style={styles.linkTitle}>My Watchlist</Text>
+                <Text style={styles.linkSubtitle}>{watchlist.length} item{watchlist.length !== 1 ? 's' : ''}</Text>
+              </View>
+            </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={styles.linkCard} 
-                activeOpacity={0.7}
-                onPress={onEarnPointsPress}
-              >
-                 <View style={styles.linkIconBg}>
-                    <MaterialIcons name="savings" size={24} color="#fde047" />
-                 </View>
-                 <View>
-                    <Text style={styles.linkTitle}>Earn Points</Text>
-                    <Text style={styles.linkSubtitle}>View daily tasks</Text>
-                 </View>
-              </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.linkCard}
+              activeOpacity={0.7}
+              onPress={onDownloadsPress}
+            >
+              <View style={styles.linkIconBg}>
+                <MaterialIcons name="download" size={24} color="#93c5fd" />
+              </View>
+              <View>
+                <Text style={styles.linkTitle}>My Downloads</Text>
+                <Text style={styles.linkSubtitle}>{downloads.length} download{downloads.length !== 1 ? 's' : ''}</Text>
+              </View>
+            </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={styles.linkCard} 
-                activeOpacity={0.7}
-                onPress={onRedeemPoints}
-              >
-                 <View style={styles.linkIconBg}>
-                    <MaterialIcons name="redeem" size={24} color="#fca5a5" />
-                 </View>
-                 <View>
-                    <Text style={styles.linkTitle}>Redeem</Text>
-                    <Text style={styles.linkSubtitle}>Shop rewards</Text>
-                 </View>
-              </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.linkCard}
+              activeOpacity={0.7}
+              onPress={onEarnPointsPress}
+            >
+              <View style={styles.linkIconBg}>
+                <MaterialIcons name="savings" size={24} color="#fde047" />
+              </View>
+              <View>
+                <Text style={styles.linkTitle}>Earn Points</Text>
+                <Text style={styles.linkSubtitle}>View daily tasks</Text>
+              </View>
+            </TouchableOpacity>
 
-           </View>
+            <TouchableOpacity
+              style={styles.linkCard}
+              activeOpacity={0.7}
+              onPress={onRedeemPoints}
+            >
+              <View style={styles.linkIconBg}>
+                <MaterialIcons name="redeem" size={24} color="#fca5a5" />
+              </View>
+              <View>
+                <Text style={styles.linkTitle}>Redeem</Text>
+                <Text style={styles.linkSubtitle}>Shop rewards</Text>
+              </View>
+            </TouchableOpacity>
+
+          </View>
         </View>
 
         {/* Settings List */}
         <View style={[styles.section, { marginBottom: 24 }]}>
-           <Text style={styles.sectionHeaderTitle}>Settings</Text>
-           <View style={styles.settingsList}>
-              
-              <TouchableOpacity style={styles.settingItem} onPress={onAccountDetailsPress}>
-                 <View style={styles.settingLeft}>
-                    <MaterialIcons name="person" size={20} color="#9ca3af" />
-                    <Text style={styles.settingText}>Account Details</Text>
-                 </View>
-                 <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
-              </TouchableOpacity>
+          <Text style={styles.sectionHeaderTitle}>Settings</Text>
+          <View style={styles.settingsList}>
 
-              <View style={styles.divider} />
+            <TouchableOpacity style={styles.settingItem} onPress={onAccountDetailsPress}>
+              <View style={styles.settingLeft}>
+                <MaterialIcons name="person" size={20} color="#9ca3af" />
+                <Text style={styles.settingText}>Account Details</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
+            </TouchableOpacity>
 
-              <TouchableOpacity style={styles.settingItem} onPress={onPremiumPress}>
-                 <View style={styles.settingLeft}>
-                    <MaterialIcons name="diamond" size={20} color="#9ca3af" />
-                    <Text style={styles.settingText}>Premium Subscription</Text>
-                 </View>
-                 <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
-              </TouchableOpacity>
+            <View style={styles.divider} />
 
-              <View style={styles.divider} />
+            <TouchableOpacity style={styles.settingItem} onPress={onPremiumPress}>
+              <View style={styles.settingLeft}>
+                <MaterialIcons name="diamond" size={20} color="#9ca3af" />
+                <Text style={styles.settingText}>Premium Subscription</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
+            </TouchableOpacity>
 
-              <TouchableOpacity style={styles.settingItem} onPress={onHelpSupportPress}>
-                 <View style={styles.settingLeft}>
-                    <MaterialIcons name="help" size={20} color="#9ca3af" />
-                    <Text style={styles.settingText}>Help & Support</Text>
-                 </View>
-                 <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
-              </TouchableOpacity>
+            <View style={styles.divider} />
 
-           </View>
+            <TouchableOpacity style={styles.settingItem} onPress={onHelpSupportPress}>
+              <View style={styles.settingLeft}>
+                <MaterialIcons name="help" size={20} color="#9ca3af" />
+                <Text style={styles.settingText}>Help & Support</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#6b7280" />
+            </TouchableOpacity>
+
+          </View>
         </View>
 
         <View style={{ height: 100 }} />

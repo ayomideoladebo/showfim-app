@@ -13,7 +13,7 @@ import { useWatchlist } from '../hooks/useWatchlist';
 import { useContinueWatching } from '../hooks/useContinueWatching';
 import { useRecommendations } from '../hooks/useRecommendations';
 import { formatTime } from '../utils/streamUtils';
-
+import { getCustomMovies, CustomMovie } from '../services/customMovies';
 const { width } = Dimensions.get('window');
 
 
@@ -23,12 +23,15 @@ const { width } = Dimensions.get('window');
 interface HomeScreenProps {
   onMoviePress?: (movieId: number) => void;
   onTvPress?: (tvId: number) => void;
+  onCustomMoviePress?: (customMovieId: number) => void;
   onNotificationPress?: () => void;
+  onSeeAll?: (section: string, title: string, items: any[]) => void;
+  unreadNotificationCount?: number;
 }
 
-export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPress }: HomeScreenProps) {
+export default function HomeScreen({ onMoviePress, onTvPress, onCustomMoviePress, onNotificationPress, onSeeAll, unreadNotificationCount = 0 }: HomeScreenProps) {
   const scrollY = useRef(new Animated.Value(0)).current;
-  
+
   // TMDB Data State
   const [heroSlides, setHeroSlides] = useState<(TMDBMovie | TMDBTVShow)[]>([]);
   const [activeHeroIndex, setActiveHeroIndex] = useState(0);
@@ -39,28 +42,31 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
   const [actionContent, setActionContent] = useState<(TMDBMovie | TMDBTVShow)[]>([]);
   const [comedyContent, setComedyContent] = useState<(TMDBMovie | TMDBTVShow)[]>([]);
   const [dramaContent, setDramaContent] = useState<(TMDBMovie | TMDBTVShow)[]>([]);
-  
+
   // TV Show State
   const [trendingTvShows, setTrendingTvShows] = useState<TMDBTVShow[]>([]);
   const [popularTvShows, setPopularTvShows] = useState<TMDBTVShow[]>([]);
   const [kDramas, setKDramas] = useState<TMDBTVShow[]>([]);
-  
+
+  // Custom Movies
+  const [customMovies, setCustomMovies] = useState<CustomMovie[]>([]);
+
   // Trending filter state
   const [trendingFilter, setTrendingFilter] = useState<'movie' | 'tv'>('movie');
-  
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   // Watchlist hook
   const { addToWatchlist, removeFromWatchlist, isInWatchlist } = useWatchlist();
-  
+
   // Continue Watching hook
   const { items: continueWatchingItems, refresh: refreshContinueWatching } = useContinueWatching();
-  
+
   // Get IDs to exclude from recommendations (items already on home screen)
   const excludeIds = [...trendingMovies.map(m => m.id), ...popularMovies.map(m => m.id)];
-  
+
   // Recommendations hook
   const { recommendations, loading: recommendationsLoading, hasWatchHistory } = useRecommendations(excludeIds);
 
@@ -69,31 +75,34 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
     const fetchMovies = async () => {
       try {
         setLoading(true);
-        const [trending, popular, topRated, upcoming, trendingTv] = await Promise.all([
+        const [trending, popular, topRated, upcoming, trendingTv, custom] = await Promise.all([
           getTrendingMovies('week'),
           getPopularMovies(),
           getTopRatedMovies(),
           getUpcomingInTheaters(),
           getTrendingTV('week'),
+          getCustomMovies(),
         ]);
-        
+
+        setCustomMovies(custom);
+
         // Create hero slides: Top 5 movies and Top 5 TV shows interleaved
         const topMovies = trending.slice(0, 5);
         const topTv = trendingTv.slice(0, 5);
         const heroContent: (TMDBMovie | TMDBTVShow)[] = [];
-        
+
         for (let i = 0; i < Math.max(topMovies.length, topTv.length); i++) {
           if (topMovies[i]) heroContent.push(topMovies[i]);
           if (topTv[i]) heroContent.push(topTv[i]);
         }
-        
+
         setHeroSlides(heroContent);
-        
+
         setTrendingMovies(trending.slice(0, 10));
         setPopularMovies(popular.slice(0, 10));
         setTopRatedMovies(topRated.slice(0, 10));
         setUpcomingMovies(upcoming.slice(0, 10));
-        
+
         // Collect all displayed movie IDs for deduplication
         let displayedIds = [
           ...trending.slice(0, 10).map(m => m.id),
@@ -101,24 +110,24 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           ...topRated.slice(0, 10).map(m => m.id),
           ...upcoming.slice(0, 10).map(m => m.id),
         ];
-        
+
         // Fetch action content (movies + TV) excluding already displayed ones
         const action = await getActionContent(displayedIds);
         setActionContent(action.slice(0, 10));
         displayedIds = [...displayedIds, ...action.slice(0, 10).map(m => m.id)];
-        
+
         // Fetch comedy content (movies + TV) excluding all previously displayed
         const comedy = await getComedyContent(displayedIds);
         setComedyContent(comedy.slice(0, 10));
         displayedIds = [...displayedIds, ...comedy.slice(0, 10).map(m => m.id)];
-        
+
         // Fetch drama content (movies + TV) excluding all previously displayed
         const drama = await getDramaContent(displayedIds);
         setDramaContent(drama.slice(0, 10));
-        
+
         // Store trending TV for the filter
         setTrendingTvShows(trendingTv.slice(0, 10));
-        
+
         // Fetch Popular TV and K-Dramas
         const [popularTv, koreanDramas] = await Promise.all([
           getPopularTV(),
@@ -126,7 +135,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
         ]);
         setPopularTvShows(popularTv.slice(0, 10));
         setKDramas(koreanDramas.slice(0, 10));
-        
+
         setError(null);
       } catch (err) {
         console.error('Error fetching movies:', err);
@@ -143,30 +152,33 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      const [trending, popular, topRated, upcoming, trendingTv] = await Promise.all([
+      const [trending, popular, topRated, upcoming, trendingTv, custom] = await Promise.all([
         getTrendingMovies('week'),
         getPopularMovies(),
         getTopRatedMovies(),
         getUpcomingInTheaters(),
         getTrendingTV('week'),
+        getCustomMovies(),
       ]);
-      
+
+      setCustomMovies(custom);
+
       const topMovies = trending.slice(0, 5);
       const topTv = trendingTv.slice(0, 5);
       const heroContent: (TMDBMovie | TMDBTVShow)[] = [];
-      
+
       for (let i = 0; i < Math.max(topMovies.length, topTv.length); i++) {
         if (topMovies[i]) heroContent.push(topMovies[i]);
         if (topTv[i]) heroContent.push(topTv[i]);
       }
-      
+
       setHeroSlides(heroContent);
       setTrendingMovies(trending.slice(0, 10));
       setPopularMovies(popular.slice(0, 10));
       setTopRatedMovies(topRated.slice(0, 10));
       setUpcomingMovies(upcoming.slice(0, 10));
       setTrendingTvShows(trendingTv.slice(0, 10));
-      
+
       // Refresh continue watching
       refreshContinueWatching();
     } catch (err) {
@@ -175,7 +187,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
       setRefreshing(false);
     }
   };
-  
+
   // Calculate width for 3-column layout - ensuring all 3 cards are fully visible
   // Section has 24px left/right padding, ScrollView has 0 left and 24px right padding
   // We need: card1 + gap + card2 + gap + card3 + right padding to fit
@@ -194,12 +206,12 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Fixed Header Layer */}
       <View style={styles.fixedHeader}>
         {/* Animated Background */}
         <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#1a1121', opacity: headerBgOpacity }]} />
-        
+
         <SafeAreaView edges={['top']} style={styles.headerContent}>
           <View style={styles.logoRow}>
             <View style={styles.logoIcon}>
@@ -209,11 +221,18 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           </View>
           <TouchableOpacity style={styles.notificationBtn} onPress={onNotificationPress}>
             <MaterialIcons name="notifications-none" size={24} color="white" />
+            {unreadNotificationCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>
+                  {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </SafeAreaView>
       </View>
 
-      <ScrollView 
+      <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
         removeClippedSubviews={true}
@@ -245,8 +264,8 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
             keyExtractor={(item) => item.id.toString()}
             renderItem={({ item, index }) => {
               const title = isTMDBMovie(item) ? item.title : item.name;
-              const year = isTMDBMovie(item) 
-                ? item.release_date?.split('-')[0] 
+              const year = isTMDBMovie(item)
+                ? item.release_date?.split('-')[0]
                 : item.first_air_date?.split('-')[0];
               const type = isTMDBMovie(item) ? 'Movie' : 'TV Series';
               const rating = item.vote_average?.toFixed(1);
@@ -293,9 +312,9 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
                       </View>
                     </View>
 
-                      <View style={styles.actionButtons}>
-                      <TouchableOpacity 
-                        style={styles.playButton} 
+                    <View style={styles.actionButtons}>
+                      <TouchableOpacity
+                        style={styles.playButton}
                         onPress={() => {
                           if (isTMDBMovie(item)) {
                             onMoviePress?.(item.id);
@@ -312,7 +331,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
                         const itemTitle = isTMDBMovie(item) ? item.title : item.name;
                         const isInList = isInWatchlist(item.id, itemType);
                         return (
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             style={[styles.myListButton, isInList && { borderColor: '#9727e7' }]}
                             onPress={() => {
                               if (isInList) {
@@ -340,7 +359,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
               );
             }}
           />
-          
+
           {/* Pagination Dots */}
           <View style={styles.paginationDots}>
             {heroSlides.map((_, index) => (
@@ -357,7 +376,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
 
         {/* SECTIONS */}
         <View style={styles.sectionsContainer}>
-          
+
           {/* Continue Watching (only show if user has items) */}
           {continueWatchingItems.length > 0 && (
             <>
@@ -388,11 +407,11 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
               </ScrollView>
             </>
           )}
-          
+
           {/* Trending Now with Filter */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Trending Now</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.dropdownFilter}
               onPress={() => setTrendingFilter(trendingFilter === 'movie' ? 'tv' : 'movie')}
             >
@@ -402,7 +421,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
               <MaterialIcons name="keyboard-arrow-down" size={18} color="#9727e7" />
             </TouchableOpacity>
           </View>
-          
+
           {loading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
               {[1, 2, 3, 4, 5].map((i) => (
@@ -444,16 +463,15 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           {/* Latest On Streaming Platforms */}
           <LatestOnPlatform onMoviePress={onMoviePress} />
 
-
           {/* Popular Movies */}
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
             <Text style={styles.sectionTitle}>Popular Movies</Text>
-            <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onSeeAll?.('popular_movies', 'Popular Movies', popularMovies)}><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
           </View>
           {loading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
               {[1, 2, 3, 4, 5].map((i) => (
-                <View key={i} style={{...styles.skeletonCard, width: movieCardWidth}} />
+                <View key={i} style={{ ...styles.skeletonCard, width: movieCardWidth }} />
               ))}
             </ScrollView>
           ) : (
@@ -480,7 +498,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           {recommendationsLoading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
               {[1, 2, 3, 4, 5].map((i) => (
-                <View key={i} style={{...styles.skeletonCard, width: movieCardWidth}} />
+                <View key={i} style={{ ...styles.skeletonCard, width: movieCardWidth }} />
               ))}
             </ScrollView>
           ) : (
@@ -506,7 +524,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           {/* Upcoming Movies */}
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
             <Text style={styles.sectionTitle}>Upcoming</Text>
-            <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onSeeAll?.('upcoming', 'Upcoming', upcomingMovies)}><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
           </View>
           {loading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
@@ -531,7 +549,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           {/* Action-Packed Thrills */}
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
             <Text style={styles.sectionTitle}>Action-Packed Thrills</Text>
-            <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onSeeAll?.('action', 'Action-Packed Thrills', actionContent)}><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
           </View>
           {loading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
@@ -556,7 +574,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           {/* Comedy Gold */}
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
             <Text style={styles.sectionTitle}>Comedy Gold</Text>
-            <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onSeeAll?.('comedy', 'Comedy Gold', comedyContent)}><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
           </View>
           {loading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
@@ -581,7 +599,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           {/* Drama Excellence */}
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
             <Text style={styles.sectionTitle}>Drama Excellence</Text>
-            <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onSeeAll?.('drama', 'Drama Excellence', dramaContent)}><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
           </View>
           {loading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
@@ -606,7 +624,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           {/* Popular TV Shows */}
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
             <Text style={styles.sectionTitle}>Popular TV Shows</Text>
-            <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onSeeAll?.('popular_tv', 'Popular TV Shows', popularTvShows)}><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
           </View>
           {loading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
@@ -631,7 +649,7 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
           {/* K-Dramas */}
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
             <Text style={styles.sectionTitle}>K-Dramas</Text>
-            <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onSeeAll?.('k_dramas', 'K-Dramas', kDramas)}><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
           </View>
           {loading ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
@@ -653,6 +671,35 @@ export default function HomeScreen({ onMoviePress, onTvPress, onNotificationPres
             </ScrollView>
           )}
 
+          {/* Nollywood Movies */}
+          {customMovies.length > 0 && (
+            <>
+              <View style={[styles.sectionHeader, { marginTop: 24 }]}>
+                <Text style={styles.sectionTitle}>Nollywood</Text>
+                <TouchableOpacity onPress={() => onSeeAll?.('nollywood', 'Nollywood', customMovies)}><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+              </View>
+              {loading ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <View key={i} style={{ ...styles.skeletonCard, width: movieCardWidth }} />
+                  ))}
+                </ScrollView>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
+                  {customMovies.map((movie) => (
+                    <PortraitCard
+                      key={`custom-${movie.id}`}
+                      title={movie.title}
+                      image={movie.poster_url || ''}
+                      onPress={() => onCustomMoviePress?.(movie.id)}
+                      style={{ width: movieCardWidth }}
+                    />
+                  ))}
+                </ScrollView>
+              )}
+            </>
+          )}
+
         </View>
       </ScrollView>
 
@@ -665,7 +712,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1a1121',
   },
-  
+
   // Hero
   heroContainer: {
     width: width,
@@ -743,6 +790,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
+    position: 'relative',
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    backgroundColor: '#ef4444',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#1a1121',
+  },
+  notifBadgeText: {
+    color: 'white',
+    fontSize: 9,
+    fontFamily: 'Manrope_700Bold',
   },
   heroContent: {
     position: 'absolute',
@@ -899,7 +966,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: 'Manrope_500Medium',
   },
-  
+
   // Filter Chips
   filterChips: {
     flexDirection: 'row',
@@ -927,7 +994,7 @@ const styles = StyleSheet.create({
   filterChipTextActive: {
     color: 'white',
   },
-  
+
   // Dropdown Filter
   dropdownFilter: {
     flexDirection: 'row',

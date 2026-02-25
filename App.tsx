@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, ActivityIndicator, BackHandler } from 'react-native';
 import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './src/providers/AuthProvider';
 import SplashScreen from './src/screens/SplashScreen';
@@ -23,6 +23,8 @@ import PremiumScreen from './src/screens/PremiumScreen';
 import HelpSupportScreen from './src/screens/HelpSupportScreen';
 import ShuffleLoadingScreen from './src/screens/ShuffleLoadingScreen';
 import SecurityScreen from './src/screens/SecurityScreen';
+import CustomMovieDetailsScreen from './src/screens/CustomMovieDetailsScreen';
+import SeeAllScreen, { SeeAllSection } from './src/screens/SeeAllScreen';
 import ShowfimPlayer from './src/components/player/ShowfimPlayer';
 import { DownloadItem } from './src/services/DownloadManager';
 import { BottomNavigation } from './src/components/BottomNavigation';
@@ -45,6 +47,7 @@ function MainLayout() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [selectedMovieId, setSelectedMovieId] = useState<number | null>(null);
   const [selectedTvId, setSelectedTvId] = useState<number | null>(null);
+  const [selectedCustomMovieId, setSelectedCustomMovieId] = useState<number | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showWatchlist, setShowWatchlist] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -60,6 +63,9 @@ function MainLayout() {
   const [selectedActor, setSelectedActor] = useState<any>(null);
   const [playingDownload, setPlayingDownload] = useState<DownloadItem | null>(null);
   const [isGuest, setIsGuest] = useState(false);
+  const [seeAllSection, setSeeAllSection] = useState<{ section: SeeAllSection; title: string } | null>(null);
+  const [seeAllItems, setSeeAllItems] = useState<any[]>([]);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
 
   const [fontsLoaded] = useFonts({
     Manrope_400Regular,
@@ -68,6 +74,19 @@ function MainLayout() {
     Manrope_700Bold,
     Manrope_800ExtraBold,
   });
+
+  // Hardware back button support for Android
+  useEffect(() => {
+    const onBackPress = () => {
+      if (selectedCustomMovieId) { setSelectedCustomMovieId(null); return true; }
+      if (selectedMovieId) { setSelectedMovieId(null); return true; }
+      if (selectedTvId) { setSelectedTvId(null); return true; }
+      if (selectedActor) { setSelectedActor(null); return true; }
+      return false;
+    };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => subscription.remove();
+  }, [selectedCustomMovieId, selectedMovieId, selectedTvId, selectedActor]);
 
   useEffect(() => {
     if (fontsLoaded) {
@@ -113,7 +132,27 @@ function MainLayout() {
 
   if (showNotifications) {
     // Maybe block notifications for guest? For now allow or let screen handle empty state
-    return <NotificationsScreen onBack={() => setShowNotifications(false)} />;
+    return (
+      <NotificationsScreen
+        onBack={() => setShowNotifications(false)}
+        onMoviePress={(movieId) => { setShowNotifications(false); setSelectedMovieId(movieId); }}
+        onTvPress={(tvId) => { setShowNotifications(false); setSelectedTvId(tvId); }}
+      />
+    );
+  }
+
+  if (seeAllSection) {
+    return (
+      <SeeAllScreen
+        section={seeAllSection.section}
+        title={seeAllSection.title}
+        items={seeAllItems}
+        onBack={() => setSeeAllSection(null)}
+        onMoviePress={(id) => { setSeeAllSection(null); setSelectedMovieId(id); }}
+        onTvPress={(id) => { setSeeAllSection(null); setSelectedTvId(id); }}
+        onCustomMoviePress={(id) => { setSeeAllSection(null); setSelectedCustomMovieId(id); }}
+      />
+    );
   }
 
   if (showWatchlist) {
@@ -240,6 +279,15 @@ function MainLayout() {
 
   }
 
+  if (selectedCustomMovieId) {
+    return (
+      <CustomMovieDetailsScreen
+        movieId={selectedCustomMovieId}
+        onBack={() => setSelectedCustomMovieId(null)}
+      />
+    );
+  }
+
   if (playingDownload) {
     // Convert DownloadItem to StreamSource
     const source = {
@@ -282,7 +330,10 @@ function MainLayout() {
         <HomeScreen
           onMoviePress={(movieId) => setSelectedMovieId(movieId)}
           onTvPress={(tvId) => setSelectedTvId(tvId)}
-          onNotificationPress={() => setShowNotifications(true)}
+          onCustomMoviePress={(customId) => setSelectedCustomMovieId(customId)}
+          onNotificationPress={() => { setShowNotifications(true); setUnreadNotifCount(0); }}
+          onSeeAll={(section, title, items) => { setSeeAllSection({ section: section as SeeAllSection, title }); setSeeAllItems(items); }}
+          unreadNotificationCount={unreadNotifCount}
         />
       )}
       {activeTab === 'search' && (
@@ -290,6 +341,7 @@ function MainLayout() {
           onMoviePress={(movieId) => setSelectedMovieId(movieId)}
           onTvPress={(tvId) => setSelectedTvId(tvId)}
           onActorPress={(actorId) => setSelectedActor({ id: actorId })}
+          onCustomMoviePress={(customId) => setSelectedCustomMovieId(customId)}
         />
       )}
       {activeTab === 'downloads' && (

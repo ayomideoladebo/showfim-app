@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -51,10 +51,43 @@ export default function RedeemPointsScreen({ onBack }: RedeemPointsScreenProps) 
   const canAfford7Days = userPoints >= 2500;
   const canAffordMonth = userPoints >= 8000;
 
+  const [redeeming, setRedeeming] = useState<string | null>(null);
+
+  const handleRedeem = async (rewardType: '24h' | '7d' | '1m', cost: number, durationHours: number, label: string) => {
+    if (!user) { Alert.alert('Sign In Required', 'Please sign in to redeem points.'); return; }
+    if (userPoints < cost) return;
+    Alert.alert('Confirm Redemption', `Redeem ${cost} points for ${label}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Redeem!',
+        onPress: async () => {
+          setRedeeming(rewardType);
+          try {
+            const { data, error } = await (supabase as any).rpc('redeem_points', {
+              p_user_id: user.id,
+              p_reward_type: rewardType,
+              p_points_cost: cost,
+              p_duration_hours: durationHours,
+            });
+            if (error) throw error;
+            const result = data as { success: boolean; error?: string };
+            if (!result.success) throw new Error(result.error || 'Redemption failed');
+            Alert.alert('🎉 Redeemed!', `Enjoy your ${label}! Your ad-free period starts now.`);
+            fetchUserPoints(); // Refresh balance
+          } catch (e: any) {
+            Alert.alert('Error', e.message);
+          } finally {
+            setRedeeming(null);
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Top Navigation */}
       <View style={styles.topNav}>
         <TouchableOpacity style={styles.backButton} onPress={onBack}>
@@ -82,7 +115,7 @@ export default function RedeemPointsScreen({ onBack }: RedeemPointsScreenProps) 
         </Text>
       </View>
 
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -104,13 +137,18 @@ export default function RedeemPointsScreen({ onBack }: RedeemPointsScreenProps) 
           </View>
           <View style={styles.cardFooter}>
             <Text style={styles.cardNote}>{canAfford24Hours ? 'Available now' : 'Need more points'}</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.redeemButtonWhite, !canAfford24Hours && styles.redeemButtonLocked]}
-              disabled={!canAfford24Hours}
+              disabled={!canAfford24Hours || redeeming !== null}
+              onPress={() => handleRedeem('24h', 500, 24, '24 Hours Ad-Free')}
             >
-              <Text style={canAfford24Hours ? styles.redeemButtonWhiteText : styles.redeemButtonLockedText}>
-                {canAfford24Hours ? 'Redeem' : 'Locked'}
-              </Text>
+              {redeeming === '24h' ? (
+                <ActivityIndicator size="small" color="black" />
+              ) : (
+                <Text style={canAfford24Hours ? styles.redeemButtonWhiteText : styles.redeemButtonLockedText}>
+                  {canAfford24Hours ? 'Redeem' : 'Locked'}
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -141,13 +179,18 @@ export default function RedeemPointsScreen({ onBack }: RedeemPointsScreenProps) 
               <MaterialIcons name={canAfford7Days ? "check-circle" : "lock"} size={14} color={canAfford7Days ? "#10b981" : "#6b7280"} />
               <Text style={styles.availableText}>{canAfford7Days ? 'Available now' : 'Need more points'}</Text>
             </View>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[canAfford7Days ? styles.redeemButtonPrimary : styles.redeemButtonLocked]}
-              disabled={!canAfford7Days}
+              disabled={!canAfford7Days || redeeming !== null}
+              onPress={() => handleRedeem('7d', 2500, 168, '7 Days Ad-Free')}
             >
-              <Text style={canAfford7Days ? styles.redeemButtonPrimaryText : styles.redeemButtonLockedText}>
-                {canAfford7Days ? 'Redeem' : 'Locked'}
-              </Text>
+              {redeeming === '7d' ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Text style={canAfford7Days ? styles.redeemButtonPrimaryText : styles.redeemButtonLockedText}>
+                  {canAfford7Days ? 'Redeem' : 'Locked'}
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -168,7 +211,7 @@ export default function RedeemPointsScreen({ onBack }: RedeemPointsScreenProps) 
               <Text style={canAffordMonth ? styles.pointsCostText : styles.pointsCostTextLocked}>8,000 pts</Text>
             </View>
           </View>
-          
+
           {/* Progress Bar */}
           {!canAffordMonth && (
             <View style={styles.progressContainer}>
@@ -184,13 +227,18 @@ export default function RedeemPointsScreen({ onBack }: RedeemPointsScreenProps) 
             </View>
           )}
 
-          <TouchableOpacity 
-            style={[canAffordMonth ? styles.redeemButtonPrimary : styles.redeemButtonLocked, { marginTop: 16, width: '100%' }]} 
-            disabled={!canAffordMonth}
+          <TouchableOpacity
+            style={[canAffordMonth ? styles.redeemButtonPrimary : styles.redeemButtonLocked, { marginTop: 16, width: '100%' }]}
+            disabled={!canAffordMonth || redeeming !== null}
+            onPress={() => handleRedeem('1m', 8000, 720, '1 Month Ad-Free')}
           >
-            <Text style={canAffordMonth ? styles.redeemButtonPrimaryText : styles.redeemButtonLockedText}>
-              {canAffordMonth ? 'Redeem' : 'Locked'}
-            </Text>
+            {redeeming === '1m' ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Text style={canAffordMonth ? styles.redeemButtonPrimaryText : styles.redeemButtonLockedText}>
+                {canAffordMonth ? 'Redeem' : 'Locked'}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
 

@@ -400,6 +400,8 @@ export default function MovieDetailsScreen({ movieId, onBack, onActorPress, onMo
         title={movie?.title || 'Movie'}
         posterUrl={movie?.poster_path ? getPosterUrl(movie.poster_path) : ''}
         loading={streamsLoading}
+        contentId={String(movieId)}
+        type="movie"
       />
 
       {/* Video Player Modal */}

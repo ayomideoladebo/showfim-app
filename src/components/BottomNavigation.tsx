@@ -20,19 +20,11 @@ export const BottomNavigation = ({ activeTab, onTabPress, onShufflePress }: Bott
           {/* Left Group */}
           <View style={styles.navLeft}>
             <TouchableOpacity style={styles.navItem} onPress={() => onTabPress('home')}>
-              <MaterialIcons 
-                name="home" 
-                size={24} 
-                color={activeTab === 'home' ? "#9727e7" : "#9ca3af"} 
-              />
+              <MaterialIcons name="home" size={24} color={activeTab === 'home' ? "#9727e7" : "#9ca3af"} />
               <Text style={[styles.navLabel, activeTab === 'home' && { color: '#9727e7' }]}>Home</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.navItem} onPress={() => onTabPress('search')}>
-              <MaterialIcons 
-                name="search" 
-                size={24} 
-                color={activeTab === 'search' ? "#9727e7" : "#9ca3af"} 
-              />
+              <MaterialIcons name="search" size={24} color={activeTab === 'search' ? "#9727e7" : "#9ca3af"} />
               <Text style={[styles.navLabel, activeTab === 'search' && { color: '#9727e7' }]}>Search</Text>
             </TouchableOpacity>
           </View>
@@ -43,17 +35,13 @@ export const BottomNavigation = ({ activeTab, onTabPress, onShufflePress }: Bott
           {/* Right Group */}
           <View style={styles.navRight}>
             <TouchableOpacity style={styles.navItem} onPress={() => onTabPress('downloads')}>
-              <MaterialIcons 
-                name="download" 
-                size={24} 
-                color={activeTab === 'downloads' ? "#9727e7" : "#9ca3af"} 
-              />
+              <MaterialIcons name="download" size={24} color={activeTab === 'downloads' ? "#9727e7" : "#9ca3af"} />
               <Text style={[styles.navLabel, activeTab === 'downloads' && { color: '#9727e7' }]}>Downloads</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.navItem} onPress={() => onTabPress('profile')}>
               <View style={[styles.profileIcon, activeTab === 'profile' && { borderColor: '#9727e7' }]}>
-                <Image 
-                  source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuD79HM3vofHsa4S-SzOm1moZZHudIZ0P7g84WlW-F2ee5SJWM-vvIg2eHtK_5UAI9P5lhf3wAKWInv2I7VUrqg_M4eQSk_U6Y4XOuxWaO-S2hbh4j2B9gOAMKUg-i6_K0HdNR41VLmxps51qohroarjLhoArxEcsziUNYlAF7qrB4vFt3Ktr7zW1Wdi8FPF8wFWOd-tmVDiK43TMSuhdCLc9v2ey5_sEtHin1v8vnNx0p__IBMlM8aaL7GZDSREsgbwjQnvBqy5TlK3' }} 
+                <Image
+                  source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuD79HM3vofHsa4S-SzOm1moZZHudIZ0P7g84WlW-F2ee5SJWM-vvIg2eHtK_5UAI9P5lhf3wAKWInv2I7VUrqg_M4eQSk_U6Y4XOuxWaO-S2hbh4j2B9gOAMKUg-i6_K0HdNR41VLmxps51qohroarjLhoArxEcsziUNYlAF7qrB4vFt3Ktr7zW1Wdi8FPF8wFWOd-tmVDiK43TMSuhdCLc9v2ey5_sEtHin1v8vnNx0p__IBMlM8aaL7GZDSREsgbwjQnvBqy5TlK3' }}
                   style={styles.profileImage}
                 />
               </View>
@@ -66,7 +54,7 @@ export const BottomNavigation = ({ activeTab, onTabPress, onShufflePress }: Bott
       {/* Floating Shuffle Button */}
       <View style={styles.shuffleButtonWrapper}>
         <TouchableOpacity style={styles.shuffleButton} activeOpacity={0.8} onPress={onShufflePress}>
-           <MaterialIcons name="shuffle" size={32} color="white" />
+          <MaterialIcons name="shuffle" size={32} color="white" />
         </TouchableOpacity>
         <Text style={styles.shuffleLabel}>Shuffle</Text>
       </View>

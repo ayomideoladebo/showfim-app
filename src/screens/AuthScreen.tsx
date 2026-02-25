@@ -6,6 +6,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { BlurView } from 'expo-blur';
 import { useAuth } from '../hooks/useAuth';
+import * as WebBrowser from 'expo-web-browser';
+import { supabase } from '../lib/supabase';
+
+WebBrowser.maybeCompleteAuthSession();
 
 interface AuthScreenProps {
   onSkip?: () => void;
@@ -16,12 +20,14 @@ export default function AuthScreen({ onSkip, initialMode = 'signin' }: AuthScree
   const { signIn, signUp } = useAuth();
   const [isSignUp, setIsSignUp] = useState(initialMode === 'signup');
   const [loading, setLoading] = useState(false);
-  
+
   // Form State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const handleAuth = async () => {
     if (!email || !password || (isSignUp && !fullName)) {
@@ -47,10 +53,39 @@ export default function AuthScreen({ onSkip, initialMode = 'signin' }: AuthScree
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'showfim://login-callback',
+          skipBrowserRedirect: true,
+        },
+      });
+      if (error) throw error;
+      if (data?.url) {
+        const result = await WebBrowser.openAuthSessionAsync(data.url, 'showfim://login-callback');
+        if (result.type === 'success' && result.url) {
+          const url = new URL(result.url);
+          const access_token = url.searchParams.get('access_token');
+          const refresh_token = url.searchParams.get('refresh_token');
+          if (access_token && refresh_token) {
+            await supabase.auth.setSession({ access_token, refresh_token });
+          }
+        }
+      }
+    } catch (err: any) {
+      Alert.alert('Google Sign-In Error', err.message || 'Sign-in failed. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Background Image Layer */}
       <ImageBackground
         source={{ uri: "https://lh3.googleusercontent.com/aida-public/AB6AXuDmPwq2wTsgwFVfRZMxWSA_mGnHphIrSJA0uYzURHwgb5ENHkaxokoQvnTpPvSQLjWDbyYVVqPAq_PsMMP0nUK8hx5kQ_5KdDxpNeW9cKUvq4ZH6PwRjLUsAs7FxEFBQmp_aPG5trvAhPbUDsx1vwGQQwSz4M_DwAx3kklwHZRwdNFClbTakCaWEN6N4ZI1xzsmL_RS9PlkFny5bnrwbaKBS1pw7WaugfJv58_hXYcoCl2m61vCxDkrDSPL9XuliHj3pYqu2nJg-VNA" }}
@@ -78,11 +113,11 @@ export default function AuthScreen({ onSkip, initialMode = 'signin' }: AuthScree
             </TouchableOpacity>
           )}
 
-          <KeyboardAvoidingView 
+          <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.keyboardView}
           >
-            <ScrollView 
+            <ScrollView
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
             >
@@ -102,130 +137,133 @@ export default function AuthScreen({ onSkip, initialMode = 'signin' }: AuthScree
                 </Text>
               </View>
 
-            {/* Form Section */}
-            <View style={styles.form}>
-              {/* Full Name Input (Sign Up Only) */}
-              {isSignUp && (
+              {/* Form Section */}
+              <View style={styles.form}>
+                {/* Full Name Input (Sign Up Only) */}
+                {isSignUp && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>FULL NAME</Text>
+                    <View style={styles.inputContainer}>
+                      <MaterialIcons name="person" size={20} color="rgba(255,255,255,0.4)" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.input}
+                        placeholder="John Doe"
+                        placeholderTextColor="rgba(255,255,255,0.2)"
+                        value={fullName}
+                        onChangeText={setFullName}
+                        autoCapitalize="words"
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {/* Email Input */}
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>FULL NAME</Text>
+                  <Text style={styles.label}>EMAIL ADDRESS</Text>
                   <View style={styles.inputContainer}>
-                    <MaterialIcons name="person" size={20} color="rgba(255,255,255,0.4)" style={styles.inputIcon} />
+                    <MaterialIcons name="mail" size={20} color="rgba(255,255,255,0.4)" style={styles.inputIcon} />
                     <TextInput
                       style={styles.input}
-                      placeholder="John Doe"
+                      placeholder="name@example.com"
                       placeholderTextColor="rgba(255,255,255,0.2)"
-                      value={fullName}
-                      onChangeText={setFullName}
-                      autoCapitalize="words"
+                      value={email}
+                      onChangeText={setEmail}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
                     />
                   </View>
                 </View>
-              )}
 
-              {/* Email Input */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>EMAIL ADDRESS</Text>
-                <View style={styles.inputContainer}>
-                  <MaterialIcons name="mail" size={20} color="rgba(255,255,255,0.4)" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="name@example.com"
-                    placeholderTextColor="rgba(255,255,255,0.2)"
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-              </View>
-
-              {/* Password Input */}
-              <View style={styles.inputGroup}>
-                <View style={styles.labelRow}>
-                  <Text style={styles.label}>PASSWORD</Text>
-                </View>
-                <View style={styles.inputContainer}>
-                  <MaterialIcons name="lock-open" size={20} color="rgba(255,255,255,0.4)" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="••••••••"
-                    placeholderTextColor="rgba(255,255,255,0.2)"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry={!showPassword}
-                  />
-                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
-                    <MaterialIcons 
-                      name={showPassword ? "visibility" : "visibility-off"} 
-                      size={20} 
-                      color="rgba(255,255,255,0.3)" 
+                {/* Password Input */}
+                <View style={styles.inputGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>PASSWORD</Text>
+                  </View>
+                  <View style={styles.inputContainer}>
+                    <MaterialIcons name="lock-open" size={20} color="rgba(255,255,255,0.4)" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="••••••••"
+                      placeholderTextColor="rgba(255,255,255,0.2)"
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry={!showPassword}
                     />
+                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+                      <MaterialIcons
+                        name={showPassword ? "visibility" : "visibility-off"}
+                        size={20}
+                        color="rgba(255,255,255,0.3)"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {!isSignUp && (
+                    <TouchableOpacity style={styles.forgotPassword}>
+                      <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Primary Action Button */}
+                <TouchableOpacity
+                  style={styles.submitButton}
+                  onPress={handleAuth}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <>
+                      <Text style={styles.submitText}>{isSignUp ? 'Sign Up' : 'Sign In'}</Text>
+                      <MaterialIcons name="arrow-forward" size={20} color="white" />
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {/* Social Login Section */}
+              <View style={styles.socialSection}>
+                <View style={styles.dividerContainer}>
+                  <View style={styles.divider} />
+                  <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
+                  <View style={styles.divider} />
+                </View>
+
+                <View style={styles.socialButtons}>
+                  {/* Google */}
+                  <TouchableOpacity style={styles.socialButton} onPress={handleGoogleSignIn} disabled={googleLoading}>
+                    {googleLoading ? (
+                      <ActivityIndicator size="small" color="white" />
+                    ) : (
+                      <MaterialIcons name="public" size={20} color="#fff" />
+                    )}
+                    <Text style={styles.socialText}>Google</Text>
+                  </TouchableOpacity>
+
+                  {/* Apple */}
+                  <TouchableOpacity style={styles.socialButton}>
+                    <MaterialIcons name="apple" size={20} color="#fff" />
+                    <Text style={styles.socialText}>Apple</Text>
                   </TouchableOpacity>
                 </View>
-                {!isSignUp && (
-                  <TouchableOpacity style={styles.forgotPassword}>
-                    <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-                  </TouchableOpacity>
-                )}
               </View>
 
-              {/* Primary Action Button */}
-              <TouchableOpacity 
-                style={styles.submitButton}
-                onPress={handleAuth}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <>
-                    <Text style={styles.submitText}>{isSignUp ? 'Sign Up' : 'Sign In'}</Text>
-                    <MaterialIcons name="arrow-forward" size={20} color="white" />
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {/* Social Login Section */}
-            <View style={styles.socialSection}>
-              <View style={styles.dividerContainer}>
-                <View style={styles.divider} />
-                <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
-                <View style={styles.divider} />
-              </View>
-
-              <View style={styles.socialButtons}>
-                {/* Google */}
-                <TouchableOpacity style={styles.socialButton}>
-                  <MaterialIcons name="public" size={20} color="#fff" /> 
-                  {/* Using generic icon for now as specific SVG requires svg package */}
-                  <Text style={styles.socialText}>Google</Text>
-                </TouchableOpacity>
-
-                {/* Apple */}
-                <TouchableOpacity style={styles.socialButton}>
-                  <MaterialIcons name="apple" size={20} color="#fff" />
-                  <Text style={styles.socialText}>Apple</Text>
+              {/* Toggle Mode */}
+              <View style={styles.footer}>
+                <Text style={styles.footerText}>
+                  {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
+                </Text>
+                <TouchableOpacity onPress={() => setIsSignUp(!isSignUp)}>
+                  <Text style={styles.footerLink}>{isSignUp ? 'Sign In' : 'Sign Up'}</Text>
                 </TouchableOpacity>
               </View>
-            </View>
-
-            {/* Toggle Mode */}
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>
-                {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
-              </Text>
-              <TouchableOpacity onPress={() => setIsSignUp(!isSignUp)}>
-                <Text style={styles.footerLink}>{isSignUp ? 'Sign In' : 'Sign Up'}</Text>
-              </TouchableOpacity>
-            </View>
 
 
 
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ImageBackground>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </ImageBackground>
     </View>
   );
 }

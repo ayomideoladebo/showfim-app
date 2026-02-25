@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Dimensions, ActivityIndicator, Alert, BackHandler } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -16,7 +16,10 @@ interface WatchlistScreenProps {
 
 export default function WatchlistScreen({ onBack, onMoviePress, onTvPress }: WatchlistScreenProps) {
   const { watchlist, loading, removeFromWatchlist } = useWatchlist();
+  const [filter, setFilter] = useState<'all' | 'movie' | 'tv' | 'custom'>('all');
   const gridItemWidth = (width - 48 - 24) / 3;
+
+  const filteredList = filter === 'all' ? watchlist : watchlist.filter(i => i.type === filter);
 
   // Handle hardware back button
   useEffect(() => {
@@ -41,39 +44,56 @@ export default function WatchlistScreen({ onBack, onMoviePress, onTvPress }: Wat
       `Remove "${item.title}" from your watchlist?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => removeFromWatchlist(item.id, item.type) },
+        { text: 'Remove', style: 'destructive', onPress: () => removeFromWatchlist(item.id, item.type as 'movie' | 'tv') },
       ]
     );
   };
 
   const movieCount = watchlist.filter(i => i.type === 'movie').length;
   const tvCount = watchlist.filter(i => i.type === 'tv').length;
+  const customCount = watchlist.filter(i => i.type === 'custom').length;
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Sticky Header */}
       <View style={styles.header}>
         <SafeAreaView edges={['top']} style={styles.headerContent}>
           <TouchableOpacity style={styles.backButton} onPress={onBack}>
-             <MaterialIcons name="arrow-back" size={24} color="#d1d5db" />
+            <MaterialIcons name="arrow-back" size={24} color="#d1d5db" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>My Watchlist</Text>
           <TouchableOpacity style={styles.filterBtn}>
-             <MaterialIcons name="filter-list" size={24} color="#9ca3af" />
+            <MaterialIcons name="filter-list" size={24} color="#9ca3af" />
           </TouchableOpacity>
         </SafeAreaView>
+        {/* Filter tabs */}
+        <View style={styles.filterTabs}>
+          {(['all', 'movie', 'tv', 'custom'] as const).map((f) => (
+            <TouchableOpacity
+              key={f}
+              style={[styles.filterTab, filter === f && styles.filterTabActive]}
+              onPress={() => setFilter(f)}
+            >
+              <Text style={[styles.filterTabText, filter === f && styles.filterTabTextActive]}>
+                {f === 'all' ? 'All' : f === 'movie' ? 'Movies' : f === 'tv' ? 'TV Shows' : 'Nollywood'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#9727e7" />
         </View>
-      ) : watchlist.length === 0 ? (
+      ) : filteredList.length === 0 ? (
         <View style={styles.emptyContainer}>
           <MaterialIcons name="bookmark-outline" size={64} color="#374151" />
-          <Text style={styles.emptyTitle}>Your watchlist is empty</Text>
+          <Text style={styles.emptyTitle}>
+            {watchlist.length === 0 ? 'Your watchlist is empty' : 'No items in this category'}
+          </Text>
           <Text style={styles.emptySubtitle}>Add movies and TV shows to watch later</Text>
         </View>
       ) : (
@@ -87,27 +107,28 @@ export default function WatchlistScreen({ onBack, onMoviePress, onTvPress }: Wat
           </View>
 
           <View style={styles.grid}>
-            {watchlist.map(item => (
-              <TouchableOpacity 
-                key={`${item.type}-${item.id}`} 
+            {filteredList.map(item => (
+              <TouchableOpacity
+                key={`${item.type}-${item.id}`}
                 style={[styles.gridItem, { width: gridItemWidth }]}
                 onPress={() => handleItemPress(item)}
                 activeOpacity={0.8}
               >
-                <Image 
-                  source={{ uri: getPosterUrl(item.posterPath) }} 
-                  style={styles.poster} 
+                <Image
+                  source={{ uri: getPosterUrl(item.posterPath) }}
+                  style={styles.poster}
                 />
                 <View style={styles.overlay} />
-                <TouchableOpacity 
-                  style={styles.removeBtn} 
+                <TouchableOpacity
+                  style={styles.removeBtn}
                   onPress={() => handleRemove(item)}
                 >
                   <MaterialIcons name="close" size={14} color="rgba(255,255,255,0.8)" />
                 </TouchableOpacity>
-                {/* Type badge */}
                 <View style={styles.typeBadge}>
-                  <Text style={styles.typeBadgeText}>{item.type === 'movie' ? 'MOVIE' : 'TV'}</Text>
+                  <Text style={styles.typeBadgeText}>
+                    {item.type === 'movie' ? 'MOVIE' : item.type === 'tv' ? 'TV' : 'NG'}
+                  </Text>
                 </View>
               </TouchableOpacity>
             ))}
@@ -205,7 +226,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   gridItem: {
-    aspectRatio: 2/3,
+    aspectRatio: 2 / 3,
     borderRadius: 12,
     overflow: 'hidden',
     position: 'relative',
@@ -228,7 +249,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     height: '40%',
-    backgroundColor: 'rgba(0,0,0,0.3)', 
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   removeBtn: {
     position: 'absolute',
@@ -257,5 +278,33 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: 'bold',
     letterSpacing: 0.5,
+  },
+  filterTabs: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.04)',
+  },
+  filterTab: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  filterTabActive: {
+    backgroundColor: 'rgba(151,39,231,0.25)',
+    borderColor: '#9727e7',
+  },
+  filterTabText: {
+    color: '#6b7280',
+    fontSize: 12,
+    fontFamily: 'Manrope_600SemiBold',
+  },
+  filterTabTextActive: {
+    color: '#d8b4fe',
   },
 });

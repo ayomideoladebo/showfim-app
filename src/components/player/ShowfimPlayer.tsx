@@ -28,7 +28,7 @@ import {
   getPlaybackProgress,
   savePlaybackProgress,
 } from '../../utils/streamUtils';
-import { addToWatchHistoryAsync } from '../../hooks/useWatchHistory';
+import { useWatchHistory } from '../../hooks/useWatchHistory';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -90,6 +90,17 @@ export default function ShowfimPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playableDuration, setPlayableDuration] = useState(0);
+
+  // Initialize watch history tracker
+  const mediaType = contentId.startsWith('movie') ? 'movie' : 'tv';
+  const numericIdMatch = contentId.match(/-(\d+)/);
+  const numericId = numericIdMatch ? parseInt(numericIdMatch[1], 10) : 0;
+
+  const { syncProgress } = useWatchHistory({
+    contentId: numericId,
+    mediaType,
+    durationSeconds: duration
+  });
 
   // Seamless quality switching state (dual-video approach)
   const [activeVideo, setActiveVideo] = useState<'A' | 'B'>('A');
@@ -253,43 +264,18 @@ export default function ShowfimPlayer({
     loadProgress();
   }, [contentId]);
 
-  // Save progress periodically
+  // Save progress & sync history periodically
   useEffect(() => {
     const saveInterval = setInterval(() => {
       if (currentTime > 0 && duration > 0) {
         savePlaybackProgress(contentId, currentTime, duration);
+        syncProgress(currentTime); // Tracks minutes watched / awards XP
       }
     }, 10000); // Save every 10 seconds
 
     return () => clearInterval(saveInterval);
-  }, [contentId, currentTime, duration]);
+  }, [contentId, currentTime, duration, syncProgress]);
 
-  // Record watch history
-  useEffect(() => {
-    if (currentTime > 30 || (duration > 0 && currentTime > duration * 0.1)) {
-      const recordHistory = async () => {
-        try {
-          // contentId format: "movie-123" or "tv-456-1-2"
-          const parts = contentId.split('-');
-          const type = parts[0] as 'movie' | 'tv';
-          const id = parseInt(parts[1]);
-
-          if (!isNaN(id) && (type === 'movie' || type === 'tv')) {
-            await addToWatchHistoryAsync({
-              id,
-              type,
-              title,
-              posterPath: poster
-            });
-          }
-        } catch (e) {
-          console.error('Error recording watch history', e);
-        }
-      };
-
-      recordHistory();
-    }
-  }, [contentId, currentTime, duration, title, poster]);
 
   // Lock to landscape in fullscreen
   useEffect(() => {
@@ -606,6 +592,7 @@ export default function ShowfimPlayer({
     // Save progress before closing
     if (currentTime > 0 && duration > 0) {
       savePlaybackProgress(contentId, currentTime, duration);
+      syncProgress(currentTime, true); // Force a final sync update
     }
     onClose?.();
   };

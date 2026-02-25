@@ -6,7 +6,7 @@ const WATCHLIST_KEY = 'showfim_watchlist_guest_v1';
 
 export interface WatchlistItem {
     id: number;
-    type: 'movie' | 'tv';
+    type: 'movie' | 'tv' | 'custom';
     title: string;
     posterPath: string;
     backdropPath?: string;
