@@ -47,9 +47,6 @@ export const SHOWFIM_AZURE_API_KEY = process.env.EXPO_PUBLIC_SHOWFIM_AZURE_API_K
  * Get headers for Azure Showfim API requests
  */
 export function getAzureHeaders() {
-    if (!SHOWFIM_AZURE_API_KEY) {
-        console.warn('WARNING: SHOWFIM_AZURE_API_KEY is not defined in environment variables!');
-    }
     return {
         'Content-Type': 'application/json',
         'X-API-Key': SHOWFIM_AZURE_API_KEY

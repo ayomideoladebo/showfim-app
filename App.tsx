@@ -1,6 +1,4 @@
 import { useRef } from 'react';
-console.log('[DEBUG] EXPO_PUBLIC_TMDB_API_KEY:', process.env.EXPO_PUBLIC_TMDB_API_KEY ? 'DEFINED' : 'UNDEFINED');
-console.log('[DEBUG] EXPO_PUBLIC_SHOWFIM_AZURE_API_KEY:', process.env.EXPO_PUBLIC_SHOWFIM_AZURE_API_KEY ? 'DEFINED' : 'UNDEFINED');
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, ActivityIndicator, BackHandler } from 'react-native';
 import { useState, useEffect } from 'react';
