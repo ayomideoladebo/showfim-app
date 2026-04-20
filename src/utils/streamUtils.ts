@@ -40,6 +40,22 @@ export interface StreamData {
 // Base URL for the new Azure Proxy API
 export const MOVIEBOX_API_BASE = 'https://showfim-api-cnetghdfc6e5f4df.southindia-01.azurewebsites.net';
 
+// API Key for Azure Showfim API
+export const SHOWFIM_AZURE_API_KEY = process.env.EXPO_PUBLIC_SHOWFIM_AZURE_API_KEY || '';
+
+/**
+ * Get headers for Azure Showfim API requests
+ */
+export function getAzureHeaders() {
+    if (!SHOWFIM_AZURE_API_KEY) {
+        console.warn('WARNING: SHOWFIM_AZURE_API_KEY is not defined in environment variables!');
+    }
+    return {
+        'Content-Type': 'application/json',
+        'X-API-Key': SHOWFIM_AZURE_API_KEY
+    };
+}
+
 // Excluded sources (poor quality/unreliable)
 const EXCLUDED_SOURCES = ['DahmerMovies'];
 

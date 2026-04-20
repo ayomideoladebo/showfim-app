@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { StreamData, Caption, MOVIEBOX_API_BASE, getProxiedSubtitleUrl } from '../utils/streamUtils';
+import { StreamData, Caption, MOVIEBOX_API_BASE, getProxiedSubtitleUrl, getAzureHeaders } from '../utils/streamUtils';
 
 interface UseTVShowStreamsResult {
     streams: StreamData | null;
@@ -32,7 +32,9 @@ export function useTVShowStreams(
         setError(null);
 
         try {
-            const response = await fetch(`${MOVIEBOX_API_BASE}/api/download/tv/${showId}/${season}/${episode}`);
+            const response = await fetch(`${MOVIEBOX_API_BASE}/api/download/tv/${showId}/${season}/${episode}`, {
+                headers: getAzureHeaders()
+            });
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);

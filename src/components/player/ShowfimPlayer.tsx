@@ -27,6 +27,7 @@ import {
   getQualityLabel,
   getPlaybackProgress,
   savePlaybackProgress,
+  getAzureHeaders,
 } from '../../utils/streamUtils';
 import { useWatchHistory } from '../../hooks/useWatchHistory';
 
@@ -508,7 +509,9 @@ export default function ShowfimPlayer({
         if (selectedSubtitle.url.startsWith('file://')) {
           text = await FileSystem.readAsStringAsync(selectedSubtitle.url);
         } else {
-          const response = await fetch(selectedSubtitle.url);
+          const response = await fetch(selectedSubtitle.url, {
+            headers: getAzureHeaders()
+          });
           text = await response.text();
         }
 
@@ -631,7 +634,10 @@ export default function ShowfimPlayer({
         {sourceA && (
           <Video
             ref={videoA}
-            source={{ uri: sourceA.url }}
+            source={{ 
+              uri: sourceA.url,
+              headers: getAzureHeaders()
+            }}
             style={[styles.video, activeVideo === 'B' && styles.hiddenVideo]}
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay={autoPlay && activeVideo === 'A'}
@@ -649,7 +655,10 @@ export default function ShowfimPlayer({
         {sourceB && (
           <Video
             ref={videoB}
-            source={{ uri: sourceB.url }}
+            source={{ 
+              uri: sourceB.url,
+              headers: getAzureHeaders()
+            }}
             style={[styles.video, activeVideo === 'A' && styles.hiddenVideo]}
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay={autoPlay && activeVideo === 'B'}

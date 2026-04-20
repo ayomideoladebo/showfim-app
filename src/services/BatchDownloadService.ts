@@ -1,4 +1,4 @@
-import { StreamData, processDownloads, StreamSource, MOVIEBOX_API_BASE } from '../utils/streamUtils';
+import { StreamData, processDownloads, StreamSource, MOVIEBOX_API_BASE, getAzureHeaders } from '../utils/streamUtils';
 
 /**
  * Fetch stream source for a single TV episode
@@ -9,7 +9,9 @@ export async function fetchEpisodeStreams(
     episode: number
 ): Promise<{ sources: StreamSource[]; error?: string }> {
     try {
-        const response = await fetch(`${MOVIEBOX_API_BASE}/api/download/tv/${showId}/${season}/${episode}`);
+        const response = await fetch(`${MOVIEBOX_API_BASE}/api/download/tv/${showId}/${season}/${episode}`, {
+            headers: getAzureHeaders()
+        });
 
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
